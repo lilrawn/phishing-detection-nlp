@@ -3,28 +3,58 @@ venv/
 env/
 ENV/
 venv.bak/
+.virtualenvs/
+*.pyc
+__pycache__/
 
-# Data files (these are too large for git)
+# Data files (too large for git)
 data/raw/*.csv
 data/raw/*.tar.bz2
+data/raw/*.zip
+data/raw/*.gz
 data/raw/Mail-SpamAssassin-3.4.6/
 data/raw/spamassassin_corpus/
 data/processed/*.csv
 data/processed/*.db
+data/processed/*.pkl
 
 # Database
 *.db
 *.db-journal
+*.sqlite
+*.sqlite3
 
 # Models (binary files)
 models/*.pkl
+models/*.h5
+models/*.joblib
 !models/.gitkeep
 
-# Large result files
+# Results
 results/*.csv
 results/*.png
+results/*.jpg
+results/*.pdf
 !results/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # OS files
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs
+logs/
+*.log
+
+# Environment variables
+.env
