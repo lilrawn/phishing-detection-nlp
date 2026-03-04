@@ -1,0 +1,30 @@
+# Python virtual environment
+venv/
+env/
+ENV/
+venv.bak/
+
+# Data files (these are too large for git)
+data/raw/*.csv
+data/raw/*.tar.bz2
+data/raw/Mail-SpamAssassin-3.4.6/
+data/raw/spamassassin_corpus/
+data/processed/*.csv
+data/processed/*.db
+
+# Database
+*.db
+*.db-journal
+
+# Models (binary files)
+models/*.pkl
+!models/.gitkeep
+
+# Large result files
+results/*.csv
+results/*.png
+!results/.gitkeep
+
+# OS files
+.DS_Store
+Thumbs.db
