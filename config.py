@@ -41,3 +41,22 @@ URGENT_KEYWORDS = [
     'credit card', 'ssn', 'social security', 'verify your account',
     'suspended', 'locked', 'restricted', 'unusual activity'
 ]
+
+# Add to existing config.py
+
+# Desktop app settings
+DESKTOP_CONFIG = {
+    'check_interval': 30,  # seconds
+    'notification_timeout': 5,  # seconds
+    'max_history': 1000,  # max emails to store
+    'sound_alerts': True,
+    'auto_start': False
+}
+
+# Paths for desktop app
+DESKTOP_DATA_DIR = os.path.join(BASE_DIR, 'desktop_app', 'data')
+DESKTOP_LOGS_DIR = os.path.join(BASE_DIR, 'desktop_app', 'logs')
+
+# Create directories
+os.makedirs(DESKTOP_DATA_DIR, exist_ok=True)
+os.makedirs(DESKTOP_LOGS_DIR, exist_ok=True)

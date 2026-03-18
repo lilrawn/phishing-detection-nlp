@@ -1,0 +1,14 @@
+PHISHING DETECTION MODEL SUMMARY
+========================================
+F1-Score:  0.9813
+Accuracy:  0.9783
+Precision: 0.9825
+Recall:    0.9801
+
+Confusion Matrix:
+TN: 4632  FP: 115
+FN: 131  TP: 6452
+
+Probability Ranges:
+Legitimate: 0-26.1%
+Phishing:   70.7-100%
