@@ -53,7 +53,8 @@ results/*.pdf
 !results/.gitkeep
 
 # IDE
-.vscode/
+.vscode/*
+!.vscode/settings.json
 .idea/
 *.swp
 *.swo
