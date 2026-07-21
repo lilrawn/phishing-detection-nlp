@@ -1,0 +1,149 @@
+name: Build and smoke-test desktop app
+
+# This is the actual Windows/Linux verification this project doesn't get
+# otherwise -- the packaging code was developed and hand-verified on macOS
+# only. Each job here runs on a real instance of its OS and checks two
+# things: the core detection logic works (fast, no packaging involved), and
+# the PyInstaller-built app actually launches and stays running rather than
+# crashing (or, as happened once during development, silently spawning
+# copies of itself) immediately on startup.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  detection-logic:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download NLTK data
+        run: python download_nltk_data.py
+      - name: Download spaCy model
+        run: python -m spacy download en_core_web_sm
+      - name: Run prediction test suite
+        run: python run.py --predict <<< $'test\nexit'
+        shell: bash
+
+  build-macos:
+    needs: detection-logic
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip "setuptools<81"
+          pip install -r requirements.txt
+          pip install -r desktop_app/installers/requirements_desktop.txt
+      - name: Download NLTK data
+        run: python download_nltk_data.py
+      - name: Download spaCy model
+        run: python -m spacy download en_core_web_sm
+      - name: Build .app and .dmg
+        run: python desktop_app/installers/setup_macos.py
+      - name: Launch and verify it doesn't crash or self-spawn
+        run: |
+          open desktop_app/dist/PhishingDetector.app
+          sleep 15
+          count=$(pgrep -f "Contents/MacOS/PhishingDetector" | wc -l)
+          echo "process count: $count"
+          if [ "$count" -eq 0 ]; then echo "App did not stay running"; exit 1; fi
+          if [ "$count" -gt 2 ]; then echo "App is spawning multiple copies of itself"; exit 1; fi
+          pkill -f "Contents/MacOS/PhishingDetector" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhishingDetector-macos
+          path: |
+            desktop_app/dist/PhishingDetector.app
+            desktop_app/dist/PhishingDetector.dmg
+
+  build-windows:
+    needs: detection-logic
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r desktop_app/installers/requirements_desktop.txt
+      - name: Download NLTK data
+        run: python download_nltk_data.py
+      - name: Download spaCy model
+        run: python -m spacy download en_core_web_sm
+      - name: Build
+        run: python desktop_app/installers/setup_windows.py
+      - name: Launch and verify it doesn't crash or self-spawn
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "desktop_app\dist\PhishingDetector\PhishingDetector.exe" -ArgumentList "--background"
+          Start-Sleep -Seconds 15
+          $procs = Get-Process PhishingDetector -ErrorAction SilentlyContinue
+          $count = ($procs | Measure-Object).Count
+          Write-Host "process count: $count"
+          if ($count -eq 0) { Write-Error "App did not stay running"; exit 1 }
+          if ($count -gt 2) { Write-Error "App is spawning multiple copies of itself"; exit 1 }
+          Stop-Process -Name PhishingDetector -Force -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhishingDetector-windows
+          path: |
+            desktop_app/dist/PhishingDetector
+            desktop_app/installer_windows.iss
+
+  build-linux:
+    needs: detection-logic
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install system dependencies (tkinter)
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r desktop_app/installers/requirements_desktop.txt
+      - name: Download NLTK data
+        run: python download_nltk_data.py
+      - name: Download spaCy model
+        run: python -m spacy download en_core_web_sm
+      - name: Build
+        run: xvfb-run -a python desktop_app/installers/setup_linux.py
+      - name: Launch and verify it doesn't crash or self-spawn
+        run: |
+          xvfb-run -a ./desktop_app/dist/PhishingDetector --background &
+          launcher_pid=$!
+          sleep 15
+          count=$(pgrep -fc "dist/PhishingDetector" || echo 0)
+          echo "process count: $count"
+          if [ "$count" -eq 0 ]; then echo "App did not stay running"; exit 1; fi
+          if [ "$count" -gt 2 ]; then echo "App is spawning multiple copies of itself"; exit 1; fi
+          pkill -f "dist/PhishingDetector" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhishingDetector-linux
+          path: |
+            desktop_app/dist/PhishingDetector
+            desktop_app/install.sh

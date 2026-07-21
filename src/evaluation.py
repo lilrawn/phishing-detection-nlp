@@ -44,6 +44,7 @@ class ModelEvaluator:
         filename = os.path.join(self.cm_dir, f'confusion_matrix_{model_name.lower().replace(" ", "_")}.png')
         plt.savefig(filename, dpi=100, bbox_inches='tight')
         plt.show()
+        plt.close()
         
         return cm
     
@@ -79,6 +80,7 @@ class ModelEvaluator:
         filename = os.path.join(self.viz_dir, f'roc_curve_{model_name.lower().replace(" ", "_")}.png')
         plt.savefig(filename, dpi=100, bbox_inches='tight')
         plt.show()
+        plt.close()
         
         return roc_auc
     
@@ -110,6 +112,7 @@ class ModelEvaluator:
         filename = os.path.join(self.viz_dir, f'pr_curve_{model_name.lower().replace(" ", "_")}.png')
         plt.savefig(filename, dpi=100, bbox_inches='tight')
         plt.show()
+        plt.close()
     
     def create_comparison_table(self, results_dict):
         """
@@ -182,6 +185,7 @@ class ModelEvaluator:
         filename = os.path.join(self.viz_dir, 'model_comparison.png')
         plt.savefig(filename, dpi=100, bbox_inches='tight')
         plt.show()
+        plt.close()
     
     def plot_feature_importance(self, model, feature_names, model_name, top_n=20):
         """
@@ -209,6 +213,7 @@ class ModelEvaluator:
         filename = os.path.join(self.viz_dir, f'feature_importance_{model_name.lower().replace(" ", "_")}.png')
         plt.savefig(filename, dpi=100, bbox_inches='tight')
         plt.show()
+        plt.close()
     
     def generate_evaluation_report(self, results_dict, y_test_dict=None):
         """

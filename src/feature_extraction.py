@@ -50,16 +50,23 @@ class FeatureExtractor:
         """
         return self.tfidf_vectorizer.transform(texts)
     
-    def combine_features(self, tfidf_matrix, numeric_features):
+    def combine_features(self, tfidf_matrix, numeric_features, fit=None):
         """
-        Combine TF-IDF features with numeric engineered features
+        Combine TF-IDF features with numeric engineered features.
+
+        fit controls whether the scaler is fit or just applied. Defaults to
+        fitting on the first call and transforming on every call after --
+        pass it explicitly to avoid relying on call order (e.g. fit=True for
+        training data, fit=False for validation/test data).
         """
         # Convert numeric features to numpy array if it's a DataFrame
         if isinstance(numeric_features, pd.DataFrame):
             numeric_features = numeric_features.values
-        
-        # Scale numeric features
-        if not hasattr(self, 'scaler_fitted'):
+
+        if fit is None:
+            fit = not getattr(self, 'scaler_fitted', False)
+
+        if fit:
             numeric_scaled = self.scaler.fit_transform(numeric_features)
             self.scaler_fitted = True
         else:

@@ -83,16 +83,15 @@ class ModelTrainer:
         """
         Prepare features appropriately for each model type
         """
-        from scipy.sparse import issparse
+        from scipy.sparse import issparse, csr_matrix
         
         if model_name == 'Naive Bayes':
             # Naive Bayes requires non-negative features
+            # Convert to dense and clip negative values to 0
             if issparse(X):
-                # For sparse matrices, ensure no negative values
-                if hasattr(X, 'min') and X.min() < 0:
-                    print(f"  ℹ️  Converting features for Naive Bayes (non-negative required)")
-                    # Use absolute values or shift to positive range
-                    X = X.abs() if hasattr(X, 'abs') else X
+                print(f"  ℹ️  Converting sparse to dense and clipping negatives for Naive Bayes")
+                X_dense = X.toarray()
+                X = np.maximum(X_dense, 0)
             else:
                 # For dense arrays, clip negative values to 0
                 if np.min(X) < 0:
@@ -100,7 +99,7 @@ class ModelTrainer:
                     X = np.maximum(X, 0)
             return X
         else:
-            # Other models can handle negative values
+            # Other models can handle negative values and sparse matrices
             return X
     
     def train_model(self, model_name, model, X_train, y_train, X_test, y_test):

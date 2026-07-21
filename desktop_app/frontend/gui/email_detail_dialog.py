@@ -71,7 +71,7 @@ class EmailDetailDialog:
         conf_frame.pack(side=tk.RIGHT)
         ttk.Label(conf_frame, text="Confidence:", 
                  font=('Helvetica', 10)).pack(side=tk.LEFT)
-        confidence = result.get('final_score', 0)
+        confidence = result.get('confidence', 0)
         ttk.Label(conf_frame, text=f"{confidence:.1f}%", 
                  font=('Helvetica', 14, 'bold'),
                  foreground='red' if is_phishing else 'green').pack(side=tk.LEFT, padx=5)
@@ -113,17 +113,17 @@ class EmailDetailDialog:
         analysis_frame = ttk.LabelFrame(main_frame, text="Analysis Results", padding="10")
         analysis_frame.pack(fill=tk.X, pady=10)
         
-        # Rules score
-        rules_frame = ttk.Frame(analysis_frame)
-        rules_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(rules_frame, text="Rules Score:", width=15).pack(side=tk.LEFT)
-        ttk.Label(rules_frame, text=f"{result.get('rule_score', 0):.1f}%").pack(side=tk.LEFT)
-        
-        # ML score
+        # ML probability
         ml_frame = ttk.Frame(analysis_frame)
         ml_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(ml_frame, text="ML Score:", width=15).pack(side=tk.LEFT)
-        ttk.Label(ml_frame, text=f"{result.get('ml_score', 0):.1f}%").pack(side=tk.LEFT)
+        ttk.Label(ml_frame, text="ML Probability:", width=15).pack(side=tk.LEFT)
+        ttk.Label(ml_frame, text=f"{result.get('ml_probability', 0) * 100:.1f}%").pack(side=tk.LEFT)
+
+        # Combined probability (ML + rule-based augmentation)
+        combined_frame = ttk.Frame(analysis_frame)
+        combined_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(combined_frame, text="Combined:", width=15).pack(side=tk.LEFT)
+        ttk.Label(combined_frame, text=f"{result.get('probability', 0) * 100:.1f}%").pack(side=tk.LEFT)
         
         # Reasons
         reasons = result.get('reasons', [])

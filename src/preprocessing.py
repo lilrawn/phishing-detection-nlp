@@ -23,42 +23,141 @@ except AttributeError:
 else:
     ssl._create_default_https_context = _create_unverified_https_context
 
+# Set NLTK data path. In a PyInstaller bundle, data added via `datas` is
+# extracted to sys._MEIPASS at runtime, not to the user's home directory --
+# check there first (the installer scripts bundle 'nltk_data' there when
+# ~/nltk_data exists at build time), then fall back to the normal location.
+_bundled_nltk_data = os.path.join(getattr(sys, '_MEIPASS', ''), 'nltk_data') if getattr(sys, 'frozen', False) else None
+if _bundled_nltk_data and os.path.exists(_bundled_nltk_data):
+    nltk_data_dir = _bundled_nltk_data
+    nltk.data.path.append(nltk_data_dir)
+else:
+    nltk_data_dir = os.path.expanduser('~/nltk_data')
+    if os.path.exists(nltk_data_dir):
+        nltk.data.path.append(nltk_data_dir)
+
 # Download required NLTK data with error handling
 def download_nltk_data():
     """Download NLTK data with error handling"""
     required_packages = ['stopwords', 'punkt', 'wordnet']
     for package in required_packages:
         try:
-            nltk.data.find(f'tokenizers/{package}')
+            # Map packages to their correct NLTK data paths
+            if package == 'punkt':
+                resource_path = 'tokenizers/punkt'
+            elif package == 'stopwords':
+                resource_path = 'corpora/stopwords'
+            elif package == 'wordnet':
+                resource_path = 'corpora/wordnet'
+            else:
+                resource_path = f'tokenizers/{package}'
+            
+            nltk.data.find(resource_path)
         except LookupError:
             print(f"Downloading {package}...")
-            nltk.download(package, quiet=True)
+            try:
+                nltk.download(package, quiet=True, download_dir=nltk_data_dir)
+            except Exception as e:
+                print(f"⚠️ Could not download {package}: {e}")
 
-# Call the download function
-download_nltk_data()
+# Try to download data
+try:
+    download_nltk_data()
+except Exception as e:
+    print(f"⚠️ NLTK download error: {e}")
 
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from nltk.stem import WordNetLemmatizer
+# Import NLTK modules with fallback
+try:
+    from nltk.corpus import stopwords
+    STOPWORDS_AVAILABLE = True
+except Exception as e:
+    STOPWORDS_AVAILABLE = False
+    print(f"⚠️ NLTK stopwords not available: {e}")
+
+try:
+    from nltk.tokenize import word_tokenize
+    TOKENIZER_AVAILABLE = True
+except Exception as e:
+    TOKENIZER_AVAILABLE = False
+    print(f"⚠️ NLTK tokenizer not available: {e}")
+
+try:
+    from nltk.stem import WordNetLemmatizer
+    LEMMATIZER_AVAILABLE = True
+except Exception as e:
+    LEMMATIZER_AVAILABLE = False
+    print(f"⚠️ NLTK lemmatizer not available: {e}")
 
 # Load spaCy model (small model for efficiency)
-try:
-    nlp = spacy.load('en_core_web_sm')
-except:
-    print("Downloading spaCy model...")
-    os.system('python -m spacy download en_core_web_sm --quiet')
-    nlp = spacy.load('en_core_web_sm')
+def load_spacy_model():
+    """Load spaCy model with fallback"""
+    try:
+        nlp = spacy.load('en_core_web_sm')
+        print("✅ spaCy model loaded")
+        return nlp
+    except Exception as e:
+        if getattr(sys, 'frozen', False):
+            # spacy.load('en_core_web_sm') resolves the model via Python
+            # package metadata (importlib.metadata), which doesn't reliably
+            # survive PyInstaller bundling even though the model's data
+            # files are present (collect_data_files('en_core_web_sm') in
+            # the installer scripts puts them at
+            # {_MEIPASS}/en_core_web_sm/en_core_web_sm-<version>/). Try
+            # loading from that path directly before giving up.
+            try:
+                model_root = os.path.join(sys._MEIPASS, 'en_core_web_sm')
+                versioned_dirs = [d for d in os.listdir(model_root) if d.startswith('en_core_web_sm-')]
+                if not versioned_dirs:
+                    raise FileNotFoundError(f"no versioned model dir under {model_root}")
+                nlp = spacy.load(os.path.join(model_root, versioned_dirs[0]))
+                print("✅ spaCy model loaded from bundled path")
+                return nlp
+            except Exception as path_error:
+                print(f"⚠️ spaCy model not available in this build: {e} / {path_error}")
+                # sys.executable inside a PyInstaller bundle is this app, not
+                # a real Python interpreter -- `sys.executable -m spacy
+                # download` would just relaunch the app itself, recursively,
+                # so don't attempt the download fallback below when frozen.
+                return None
+
+        print("⚠️ spaCy model not found, attempting to download...")
+        try:
+            os.system(f'{sys.executable} -m spacy download en_core_web_sm --quiet')
+            nlp = spacy.load('en_core_web_sm')
+            print("✅ spaCy model downloaded and loaded")
+            return nlp
+        except Exception as e:
+            print(f"⚠️ Could not load spaCy model: {e}")
+            return None
+
+nlp = load_spacy_model()
 
 class TextPreprocessor:
     """
-    Class for preprocessing email text
+    Class for preprocessing email text with fallback tokenization
     """
     
     def __init__(self):
-        self.stop_words = set(stopwords.words('english'))
-        self.lemmatizer = WordNetLemmatizer()
-        self.urgent_keywords = URGENT_KEYWORDS  # Now this will work
+        # Load stopwords if available
+        if STOPWORDS_AVAILABLE:
+            try:
+                self.stop_words = set(stopwords.words('english'))
+            except:
+                self.stop_words = set()
+        else:
+            self.stop_words = set()
         
+        # Initialize lemmatizer if available
+        if LEMMATIZER_AVAILABLE:
+            try:
+                self.lemmatizer = WordNetLemmatizer()
+            except:
+                self.lemmatizer = None
+        else:
+            self.lemmatizer = None
+        
+        self.urgent_keywords = URGENT_KEYWORDS
+        self.use_spacy = nlp is not None
         
     def clean_html(self, text):
         """
@@ -99,21 +198,37 @@ class TextPreprocessor:
     
     def tokenize(self, text):
         """
-        Tokenize text into words
+        Tokenize text into words with fallback
         """
-        return word_tokenize(text.lower())
+        if TOKENIZER_AVAILABLE:
+            try:
+                return word_tokenize(text.lower())
+            except Exception as e:
+                # Fallback to simple split on whitespace
+                return text.lower().split()
+        else:
+            # Simple fallback tokenization
+            return text.lower().split()
     
     def remove_stopwords(self, tokens):
         """
         Remove stopwords from tokens
         """
+        if not self.stop_words:
+            return tokens
         return [token for token in tokens if token not in self.stop_words and len(token) > 2]
     
     def lemmatize_tokens(self, tokens):
         """
-        Lemmatize tokens using WordNet
+        Lemmatize tokens using WordNet or fallback
         """
-        return [self.lemmatizer.lemmatize(token) for token in tokens]
+        if self.lemmatizer:
+            try:
+                return [self.lemmatizer.lemmatize(token) for token in tokens]
+            except:
+                return tokens
+        else:
+            return tokens
     
     def extract_features(self, text):
         """
@@ -158,13 +273,16 @@ class TextPreprocessor:
     
     def preprocess_pipeline(self, text, extract_features=True):
         """
-        Complete preprocessing pipeline
+        Complete preprocessing pipeline with fallback
         """
         if pd.isna(text):
             text = ""
         
         # Convert to string if not already
         text = str(text)
+        
+        # Save original text for feature extraction (before any transformations)
+        original_text = text
         
         # Step 1: Clean HTML
         text = self.clean_html(text)
@@ -179,7 +297,7 @@ class TextPreprocessor:
         # Step 4: Normalize whitespace
         text = self.normalize_whitespace(text)
         
-        # Step 5: Tokenize
+        # Step 5: Tokenize (with fallback)
         tokens = self.tokenize(text)
         
         # Step 6: Remove stopwords
@@ -193,9 +311,9 @@ class TextPreprocessor:
         
         result = {'cleaned_text': cleaned_text}
         
-        # Step 9: Extract features if requested
+        # Step 9: Extract features if requested (using original text before transformations)
         if extract_features:
-            features = self.extract_features(text)
+            features = self.extract_features(original_text)
             result.update(features)
         
         return result
@@ -221,13 +339,13 @@ class DataPreprocessor:
         
         for col in feature_columns:
             if col not in df.columns:
-                df[col] = 0
+                df[col] = 0.0
         
         # Process each email
         cleaned_texts = []
         
         for idx, row in df.iterrows():
-            if idx % 5 == 0:
+            if idx % 5 == 0 and idx > 0:
                 print(f"Processing email {idx+1}/{len(df)}")
             
             result = self.text_preprocessor.preprocess_pipeline(row[text_column])

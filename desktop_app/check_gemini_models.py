@@ -1,7 +1,9 @@
-# Save as check_gemini_models.py
+import os
 import requests
 
-api_key = "AIzaSyDQaMm4k6zaNZq4ZvipZAVnougyn16CZ8w"
+api_key = os.environ.get('GEMINI_API_KEY')
+if not api_key:
+    raise SystemExit("Set the GEMINI_API_KEY environment variable before running this script.")
 url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
 
 try:

@@ -116,9 +116,8 @@ def main():
     print("✅ SETUP COMPLETE!")
     print("="*60)
     print("\nYou can now run:")
-    print("  python main.py --mode train")
-    print("  python main.py --mode interactive")
-    print("  python main.py --mode predict --email \"Your email text here\"")
+    print("  python run.py --train")
+    print("  python run.py --predict")
 
 if __name__ == "__main__":
     main()

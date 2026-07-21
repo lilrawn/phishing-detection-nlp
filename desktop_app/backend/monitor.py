@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.database import db
-from src.predictor_hybrid import HybridPredictor
+from src.predictor import PhishingPredictor
 from .gmail_watcher import GmailWatcher
 from .browser_watcher import BrowserWatcher
 from .permission_manager import PermissionManager
@@ -25,7 +25,8 @@ class EmailMonitor:
     def __init__(self, callback=None):
         self.callback = callback
         self.permission_manager = PermissionManager()
-        self.predictor = HybridPredictor(ml_weight=0.3)
+        ml_weight = self.permission_manager.permissions['settings'].get('ml_weight', 0.7)
+        self.predictor = PhishingPredictor(ml_weight=ml_weight)
         self.gmail_watcher = None
         self.browser_watcher = None
         self.running = False
@@ -90,7 +91,13 @@ class EmailMonitor:
         })
         
         # Update stats
-        self.stats['phishing_found'] += 1
+        result = data.get('result', {})
+
+        if result.get('is_phishing', False):
+            self.stats['phishing_found'] += 1
+        else:
+            self.stats['safe_found'] += 1
+        
         self.stats['total_scanned'] += 1
         self.stats['last_scan'] = datetime.now()
         
@@ -105,7 +112,6 @@ class EmailMonitor:
         """Handle browser events"""
         if data['type'] == 'gmail_page_detected':
             print(f"🌐 Gmail page detected: {data['url']}")
-            # Could trigger additional scanning here
     
     def process_alerts(self):
         """Process alerts from the queue"""
@@ -120,25 +126,34 @@ class EmailMonitor:
         """Show alert to user"""
         if alert['type'] == 'phishing':
             data = alert['data']
+            result = data.get('result', {})
+            confidence = result.get('confidence', 0)
+            classification = result.get('classification', 'UNKNOWN')
+            reasons = result.get('reasons', [])
+
             print(f"""
 ⚠️ PHISHING ALERT!
    From: {data['email']['from']}
    Subject: {data['email']['subject']}
-   Confidence: {data['result']['final_score']:.1f}%
-   Reasons: {', '.join(data['result']['reasons'])}
+   Classification: {classification}
+   Confidence: {confidence:.1f}%
+   Reasons: {', '.join(reasons[:3]) if reasons else 'No specific reasons'}
             """)
     
     def save_to_database(self, data):
         """Save detection to database"""
         try:
+            result = data.get('result', {})
+            is_phishing = result.get('is_phishing', False)
+
             email_id = db.save_email({
                 'email_text': f"{data['email']['subject']}\n{data['email']['body']}",
                 'source': 'gmail_monitor',
-                'predicted_label': 'PHISHING',
-                'probability': data['result']['final_score'] / 100,
-                'confidence': data['result']['final_score'],
+                'predicted_label': 'PHISHING' if is_phishing else 'LEGITIMATE',
+                'probability': result.get('probability', 0),
+                'confidence': result.get('confidence', 0),
                 'url_count': data['email']['body'].count('http'),
-                'urgent_count': len([r for r in data['result']['reasons'] if 'urgent' in r])
+                'urgent_count': len([r for r in result.get('reasons', []) if 'urgent' in r])
             })
             print(f"✅ Saved to database (ID: {email_id})")
         except Exception as e:
@@ -162,9 +177,9 @@ class EmailMonitor:
     def manual_scan_email(self, email_text):
         """Manually scan an email"""
         result = self.predictor.predict(email_text)
-        
+
         self.stats['total_scanned'] += 1
-        if result['is_phishing']:
+        if result.get('is_phishing', False):
             self.stats['phishing_found'] += 1
         else:
             self.stats['safe_found'] += 1

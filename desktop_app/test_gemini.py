@@ -16,7 +16,11 @@ def test_gemini():
     print("="*60)
     print("🤖 Testing Gemini AI Phishing Detection")
     print("="*60)
-    
+
+    if gemini_analyzer is None:
+        print("\n❌ No Gemini API key configured. Set GEMINI_API_KEY and try again.")
+        return
+
     # Test legitimate email
     legit_email = """From: orders@amazon.com
 Subject: Your Amazon order has shipped
@@ -69,15 +73,6 @@ PayPal Security Team"""
         print(f"Sender Analysis: {result['sender_analysis']}")
     if result.get('suspicious_links'):
         print(f"Suspicious Links: {result['suspicious_links']}")
-    
-    # Test suspicious sender
-    print("\n📧 Testing suspicious sender...")
-    time.sleep(2)  # Rate limiting
-    result = gemini_analyzer.analyze_sender("security@paypal-verify.net")
-    if isinstance(result, dict):
-        print(f"Sender Analysis Result:")
-        for key, value in result.items():
-            print(f"  {key}: {value}")
     
     print("\n" + "="*60)
     print("\n⚠️ Note: If you see rate limit errors, wait a minute and try again.")

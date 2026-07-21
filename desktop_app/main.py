@@ -13,19 +13,9 @@ from pathlib import Path
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-# Fix SSL for NLTK
-import ssl
-try:
-    _create_unverified_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
-else:
-    ssl._create_default_https_context = _create_unverified_https_context
-
-# Download NLTK data quietly
-import nltk
-nltk.download('stopwords', quiet=True)
-nltk.download('wordnet', quiet=True)
+# Importing the predictor below (directly, or transitively via the backend
+# modules) already patches SSL and downloads NLTK data as a side effect --
+# see src/preprocessing.py -- so this file doesn't need its own copy.
 
 # Try to import browser integration (optional)
 try:
@@ -222,10 +212,15 @@ def run_gui(minimized=False, no_tray=False, browser_integration=False):
         # Connect browser integration if available
         if browser_integration:
             dashboard.browser_server = browser_server
+            
+            # IMPORTANT: Set up callback to forward browser messages to dashboard
             def on_browser_event(data):
-                dashboard.on_browser_event(data)
+                print(f"📨 Browser event received in main: {data.get('type')}")
+                # Forward to dashboard's on_email_detected method
+                dashboard.on_email_detected(data)
+            
             browser_server.callback = on_browser_event
-            print("   • Browser integration connected")
+            print("   ✅ Browser integration connected with callback")
         
         # Disable tray if requested
         if no_tray and hasattr(dashboard, 'notification_manager'):

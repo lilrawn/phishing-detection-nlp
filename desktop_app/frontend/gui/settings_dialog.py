@@ -176,8 +176,8 @@ class SettingsDialog:
         
         ttk.Label(weight_frame, text="Rules").pack(side=tk.LEFT)
         
-        self.ml_weight_var = tk.IntVar(value=30)
-        weight_scale = ttk.Scale(weight_frame, from_=0, to=100, 
+        self.ml_weight_var = tk.IntVar(value=int(self.settings.get('ml_weight', 0.7) * 100))
+        weight_scale = ttk.Scale(weight_frame, from_=0, to=100,
                                  variable=self.ml_weight_var, orient=tk.HORIZONTAL)
         weight_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
         
@@ -247,7 +247,8 @@ class SettingsDialog:
             'show_notifications': self.show_notif_var.get(),
             'sound_alerts': self.sound_var.get(),
             'notification_timeout': self.timeout_var.get(),
-            'alert_threshold': self.threshold_var.get()
+            'alert_threshold': self.threshold_var.get(),
+            'ml_weight': self.ml_weight_var.get() / 100
         })
         
         self.permission_manager.permissions['background_running'] = self.startup_var.get()

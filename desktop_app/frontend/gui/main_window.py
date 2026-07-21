@@ -15,6 +15,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 
 from src.database import db
 from desktop_app.backend.gmail_watcher import GmailWatcher
+from desktop_app.backend.real_gmail_watcher import RealGmailWatcher
 from desktop_app.backend.browser_watcher import BrowserWatcher
 from desktop_app.backend.permission_manager import PermissionManager
 
@@ -24,6 +25,7 @@ from .settings_dialog import SettingsDialog
 from .history_dialog import HistoryDialog
 from .notification import NotificationManager
 from .email_detail_dialog import EmailDetailDialog
+from .browser_setup_dialog import BrowserSetupDialog
 
 class PhishingDashboard:
     """Main dashboard window"""
@@ -43,6 +45,7 @@ class PhishingDashboard:
         
         # Initialize watchers
         self.gmail_watcher = None
+        self.real_gmail_watcher = None
         self.browser_watcher = None
         self.browser_server = None  # Will be set by main.py
         
@@ -65,10 +68,17 @@ class PhishingDashboard:
         
         # Check permissions
         self.check_initial_permissions()
-        
-        # Start background services
-        self.start_services()
-        
+
+        # Start background services once the Tk event loop is actually
+        # running (root.mainloop() is only called later, from run()) --
+        # start_services() spawns watcher threads whose very first check
+        # can fire within milliseconds, and calling into Tk (even via
+        # root.after) before mainloop() has started raises "main thread is
+        # not in main loop". Scheduling via after(0, ...) guarantees
+        # mainloop is live by the time this actually runs, since that's
+        # what drives the callback in the first place.
+        self.root.after(0, self.start_services)
+
         # Start update loop
         self.update_stats()
         
@@ -178,9 +188,11 @@ class PhishingDashboard:
         menubar.add_cascade(label="Permissions", menu=perm_menu)
         perm_menu.add_command(label="Grant Gmail Access", 
                               command=self.permission_manager.request_gmail_permission)
-        perm_menu.add_command(label="Grant Browser Access", 
+        perm_menu.add_command(label="Grant Browser Access",
                               command=self.permission_manager.request_browser_permission)
-        perm_menu.add_command(label="Background Running", 
+        perm_menu.add_command(label="🌐 Connect Your Browser...",
+                              command=self.open_browser_setup)
+        perm_menu.add_command(label="Background Running",
                               command=self.permission_manager.request_background_permission)
         
         # View menu
@@ -219,7 +231,7 @@ class PhishingDashboard:
         status_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=5)
         
         # Status indicators
-        self.gmail_status = ttk.Label(status_frame, text="📧 Gmail: Disconnected")
+        self.gmail_status = ttk.Label(status_frame, text="📧 Samples: Inactive")
         self.gmail_status.grid(row=0, column=0, padx=10)
         
         self.browser_status = ttk.Label(status_frame, text="🌐 Browser: Disconnected")
@@ -301,9 +313,9 @@ class PhishingDashboard:
         notif_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
         
         # Create treeview for notifications
-        columns = ('Time', 'Type', 'Source', 'From', 'Subject', 'Confidence')
+        columns = ('Time', 'Type', 'Source', 'From', 'Subject', 'Confidence', 'Reason')
         self.notif_tree = ttk.Treeview(notif_frame, columns=columns, show='headings', height=6)
-        
+
         # Define headings
         self.notif_tree.heading('Time', text='Time')
         self.notif_tree.heading('Type', text='Type')
@@ -311,14 +323,16 @@ class PhishingDashboard:
         self.notif_tree.heading('From', text='From')
         self.notif_tree.heading('Subject', text='Subject')
         self.notif_tree.heading('Confidence', text='Confidence')
-        
+        self.notif_tree.heading('Reason', text='Why Flagged')
+
         # Set column widths
         self.notif_tree.column('Time', width=80)
         self.notif_tree.column('Type', width=100)
         self.notif_tree.column('Source', width=80)
         self.notif_tree.column('From', width=200)
-        self.notif_tree.column('Subject', width=300)
-        self.notif_tree.column('Confidence', width=100)
+        self.notif_tree.column('Subject', width=260)
+        self.notif_tree.column('Confidence', width=90)
+        self.notif_tree.column('Reason', width=280)
         
         # Add scrollbar
         scrollbar = ttk.Scrollbar(notif_frame, orient=tk.VERTICAL, command=self.notif_tree.yview)
@@ -470,57 +484,29 @@ class PhishingDashboard:
         clear_log_btn.pack(side=tk.LEFT, padx=5)
     
     def google_sign_in(self):
-        """Handle Google Sign-In"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Sign in with Google")
-        dialog.geometry("400x300")
-        dialog.transient(self.root)
-        
-        ttk.Label(dialog, text="🔑 Sign in with Google", 
-                 font=('Helvetica', 14, 'bold')).pack(pady=20)
-        
-        ttk.Label(dialog, text="This would open Google OAuth in a real app.\n\n"
-                               "For demo purposes, enter your Gmail:", 
-                 justify=tk.CENTER).pack(pady=10)
-        
-        email_var = tk.StringVar()
-        ttk.Entry(dialog, textvariable=email_var, width=30).pack(pady=10)
-        
-        def do_signin():
-            email = email_var.get()
-            if email and '@' in email:
-                self.google_status.config(text=f"🔑 Google: {email}")
-                self.add_log(f"🔑 Signed in as {email}", 'info')
-                messagebox.showinfo("Success", f"Signed in as {email}")
-                dialog.destroy()
-            else:
-                messagebox.showerror("Error", "Please enter a valid email")
-        
-        ttk.Button(dialog, text="Sign In", command=do_signin).pack(pady=10)
-        ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack()
-    
+        """Open the real Gmail login dialog (IMAP app-password based -- see
+        login_dialog.py) and, on success, start scanning the real inbox
+        immediately rather than waiting for the next app launch."""
+        dialog = LoginDialog(self.root, self.permission_manager)
+        self.root.wait_window(dialog.dialog)
+        self.start_real_gmail_watcher_if_configured()
+
     def get_confidence_from_result(self, result):
-        """Safely get confidence from result dict (handles all formats)"""
+        """Get confidence (0-100) from a predictor result dict"""
         if not result:
             return 0
-        try:
-            # First try the enhanced predictor format
-            if 'total_confidence' in result:
-                return result['total_confidence']
-            # Then try the old format
-            elif 'final_score' in result:
-                return result['final_score']
-            # Try other common keys
-            elif 'confidence' in result:
-                return result['confidence']
-            elif 'score' in result:
-                return result['score']
-            elif 'probability' in result:
-                return result['probability'] * 100
-            else:
-                return 0
-        except Exception:
-            return 0  # Silently ignore errors
+        return result.get('confidence', 0)
+
+    def _summarize_reasons(self, result):
+        """Short, single-line summary of why an email was flagged, for the
+        main list -- the full list is still available in the detail dialog."""
+        reasons = (result or {}).get('reasons', [])
+        if not reasons:
+            return 'No specific concerns' if not (result or {}).get('is_phishing') else 'Flagged by ML model'
+        summary = reasons[0]
+        if len(reasons) > 1:
+            summary += f" (+{len(reasons) - 1} more)"
+        return summary
     
     def update_browser_status(self, connected=True, extension_count=0):
         """Update browser extension status"""
@@ -682,13 +668,19 @@ class PhishingDashboard:
     
     def start_services(self):
         """Start background services"""
-        if self.permission_manager.check_permission('gmail_access'):
-            self.gmail_watcher = GmailWatcher(self.permission_manager, self.on_email_detected)
-            self.gmail_watcher.start()
-            self.gmail_status.config(text="📧 Gmail: Connected")
-            self.add_log("📧 Gmail watcher started", 'info')
-            self.gmail_watcher.paused = False
-        
+        # GmailWatcher only ever generates simulated sample emails (see
+        # gmail_watcher.py) -- it never touches a real inbox, so it doesn't
+        # need the real-credentials 'gmail_access' permission to run. Gating
+        # it there made "Sample Emails Only" mode a silent no-op for anyone
+        # who hadn't separately granted real Gmail access.
+        self.gmail_watcher = GmailWatcher(self.permission_manager, self.on_email_detected)
+        self.gmail_watcher.start()
+        self.gmail_status.config(text="📧 Samples: Active")
+        self.add_log("📧 Gmail watcher started", 'info')
+        self.gmail_watcher.paused = False
+
+        self.start_real_gmail_watcher_if_configured()
+
         if self.permission_manager.check_permission('browser_monitoring'):
             self.browser_watcher = BrowserWatcher(self.permission_manager, self.on_browser_event)
             self.browser_watcher.start()
@@ -714,9 +706,35 @@ class PhishingDashboard:
             self.add_log("🔄 Background service running", 'info')
         
         self.change_detection_mode()
-    
+
+    def start_real_gmail_watcher_if_configured(self):
+        """Start (or restart) the real IMAP-based Gmail scan if at least
+        one enabled real account is configured. Called on startup and
+        again right after a successful login, so a real inbox sweep begins
+        immediately rather than waiting for the next app launch."""
+        accounts = self.permission_manager.permissions.get('gmail_accounts', [])
+        if not any(a.get('enabled', True) for a in accounts):
+            return
+
+        if self.real_gmail_watcher and self.real_gmail_watcher.is_alive():
+            return
+
+        self.real_gmail_watcher = RealGmailWatcher(self.permission_manager, self.on_email_detected)
+        self.real_gmail_watcher.start()
+        self.google_status.config(text=f"🔑 Google: {accounts[0]['email']}")
+        self.add_log(f"📬 Scanning real inbox for {accounts[0]['email']}...", 'info')
+
     def on_email_detected(self, data):
-        """Handle email detection event"""
+        """Handle email detection event.
+
+        Called from background threads (GmailWatcher, the browser HTTP
+        server) as well as directly -- Tkinter widgets may only be touched
+        from the main thread, so always redispatch through root.after
+        rather than trusting the caller to have done it.
+        """
+        self.root.after(0, self._on_email_detected_main_thread, data)
+
+    def _on_email_detected_main_thread(self, data):
         current_mode = self.detection_mode.get()
         
         if data.get('type') == 'browser_connected':
@@ -767,7 +785,7 @@ class PhishingDashboard:
         
         self.email_cache[data['email_id']] = data
         self.update_sender_reputation(data)
-        self.root.after(0, self.add_notification, data)
+        self.add_notification(data)
         
         if data['type'] == 'phishing_detected':
             self.notification_manager.show_phishing_alert(data['email'], data['result'])
@@ -780,6 +798,7 @@ class PhishingDashboard:
         result = data.get('result', {})
         subject = data.get('subject', 'Unknown')
         sender = data.get('sender', 'Unknown')
+        email_content = data.get('email_content', '')
         confidence = self.get_confidence_from_result(result)
         is_phishing = result.get('is_phishing', False)
         email_id = data.get('email_id', f"browser_{len(self.email_cache)}")
@@ -800,20 +819,25 @@ class PhishingDashboard:
             message = f"Email: {subject[:50]}...\nFrom: {sender}\nConfidence: {confidence:.1f}%"
             self.notification_manager.show_notification(title, message, 'info')
         
+        # Update browser scans counter
         current_browser_scans = int(self.browser_scans.cget('text')) if self.browser_scans.cget('text').isdigit() else 0
         self.browser_scans.config(text=str(current_browser_scans + 1))
         
-        # Add to dashboard with browser source
-        self.add_browser_notification(data, email_id)
+        # Create email data for dashboard
+        email_data = {
+            'from': sender,
+            'subject': subject,
+            'body': email_content[:500] if email_content else 'Email content captured from browser',
+            'id': email_id,
+            'timestamp': datetime.now()
+        }
+        
+        # Add to dashboard
+        self.add_browser_notification(data, email_data, email_id, confidence, is_phishing)
     
-    def add_browser_notification(self, data, email_id):
+    def add_browser_notification(self, data, email_data, email_id, confidence, is_phishing):
         """Add browser scan result to dashboard"""
         time_str = datetime.now().strftime("%H:%M:%S")
-        result = data.get('result', {})
-        subject = data.get('subject', 'Unknown')
-        sender = data.get('sender', 'Unknown')
-        is_phishing = result.get('is_phishing', False)
-        confidence = self.get_confidence_from_result(result)
         
         if is_phishing:
             type_display = '🔴 PHISHING'
@@ -822,25 +846,22 @@ class PhishingDashboard:
             type_display = '🟢 LEGITIMATE'
             tags = ('legitimate',)
         
-        subject_short = subject[:50] + '...' if len(subject) > 50 else subject
-        
+        subject_short = email_data['subject'][:50] + '...' if len(email_data['subject']) > 50 else email_data['subject']
+        reason = self._summarize_reasons(data.get('result', {}))
+
         item_id = self.notif_tree.insert('', 0, values=(
             time_str,
             type_display,
             '🌐 Browser',
-            sender,
+            email_data['from'],
             subject_short,
-            f"{confidence:.1f}%"
+            f"{confidence:.1f}%",
+            reason
         ), tags=tags)
         
         browser_data = {
-            'email': {
-                'from': sender,
-                'subject': subject,
-                'body': 'Email content available in browser',
-                'id': email_id
-            },
-            'result': result,
+            'email': email_data,
+            'result': data.get('result', {}),
             'type': 'phishing_detected' if is_phishing else 'legitimate_detected',
             'email_id': email_id,
             'source': 'browser'
@@ -851,7 +872,7 @@ class PhishingDashboard:
         self.notif_tree.tag_configure('phishing', background='#ffcccc')
         self.notif_tree.tag_configure('legitimate', background='#ccffcc')
         
-        self.add_log(f"   Added browser email to dashboard", 'info')
+        self.add_log(f"   ✅ Browser email added to dashboard", 'info')
     
     def on_gemini_analysis(self, data):
         email_id = data['email_id']
@@ -918,11 +939,20 @@ class PhishingDashboard:
             email_id = data.get('email_id', '')
             source = data.get('source', 'Gmail Watcher')
             
+            # Determine source display
+            if source == 'browser':
+                source_display = '🌐 Browser'
+            elif source == 'sample':
+                source_display = '📧 Sample'
+            else:
+                source_display = '🔄 Watcher'
+            
             confidence = self.get_confidence_from_result(result)
             is_phishing = result.get('is_phishing', False)
             
             self.add_log(f"📧 Email from: {email.get('from', 'Unknown')}", 'info')
             self.add_log(f"   Subject: {email.get('subject', 'No subject')[:50]}...", 'info')
+            self.add_log(f"   Source: {source_display}", 'info')
             self.add_log(f"   Result: {'🔴 PHISHING' if is_phishing else '🟢 LEGITIMATE'} ({confidence:.1f}%)", 
                         'phishing' if is_phishing else 'legitimate')
             
@@ -937,13 +967,16 @@ class PhishingDashboard:
             subject = email.get('subject', 'No subject') if isinstance(email, dict) else 'No subject'
             subject = subject[:50] + '...' if len(subject) > 50 else subject
             
+            reason = self._summarize_reasons(result)
+
             item_id = self.notif_tree.insert('', 0, values=(
                 time_str,
                 type_display,
-                source,
+                source_display,
                 sender,
                 subject,
-                f"{confidence:.1f}%"
+                f"{confidence:.1f}%",
+                reason
             ), tags=tags)
             
             self.email_id_map[item_id] = email_id
@@ -1039,7 +1072,7 @@ class PhishingDashboard:
     def update_email_display(self, email_id, is_phishing):
         for item_id, eid in self.email_id_map.items():
             if eid == email_id:
-                current_values = self.notif_tree.item(item_id)['values']
+                current_values = list(self.notif_tree.item(item_id)['values'])
                 if current_values:
                     new_values = list(current_values)
                     if is_phishing:
@@ -1110,24 +1143,37 @@ class PhishingDashboard:
     def manual_scan(self):
         self.scan_btn.config(state=tk.DISABLED, text="🔍 Scanning...")
         self.add_log("🔍 Manual scan started", 'info')
-        
+
         def scan():
-            time.sleep(2)
-            self.root.after(0, self.scan_complete)
-        
+            before = db.get_statistics()
+            if self.gmail_watcher:
+                self.gmail_watcher.simulate_check_emails()
+            time.sleep(1)
+            after = db.get_statistics()
+            scanned = after['total_emails'] - before['total_emails']
+            phishing_found = after['phishing'] - before['phishing']
+            self.root.after(0, self.scan_complete, scanned, phishing_found)
+
         threading.Thread(target=scan, daemon=True).start()
-    
-    def scan_complete(self):
+
+    def scan_complete(self, scanned, phishing_found):
         self.scan_btn.config(state=tk.NORMAL, text="🔍 Scan Now")
-        self.add_log("✅ Manual scan completed", 'info')
-        
-        stats = {'scanned': 10, 'phishing': 2}
-        self.notification_manager.show_scan_complete(stats)
-        messagebox.showinfo("Scan Complete", "Email scan completed successfully!")
+        self.add_log(f"✅ Manual scan completed: {scanned} new email(s), {phishing_found} phishing", 'info')
+
+        self.notification_manager.show_scan_complete({'scanned': scanned, 'phishing': phishing_found})
+        if scanned == 0:
+            messagebox.showinfo("Scan Complete", "No new emails since the last check.")
+        else:
+            messagebox.showinfo("Scan Complete",
+                                 f"Checked {scanned} new email(s), found {phishing_found} phishing attempt(s).")
     
     def open_settings(self):
         self.add_log("⚙️ Opening settings", 'info')
         SettingsDialog(self.root, self.permission_manager)
+
+    def open_browser_setup(self):
+        self.add_log("🌐 Opening browser connection setup", 'info')
+        BrowserSetupDialog(self.root)
     
     def show_statistics(self):
         stats = db.get_statistics()
@@ -1278,6 +1324,8 @@ class PhishingDashboard:
         self.add_log("👋 Shutting down...", 'info')
         if self.gmail_watcher:
             self.gmail_watcher.stop()
+        if self.real_gmail_watcher:
+            self.real_gmail_watcher.stop()
         if self.browser_watcher:
             self.browser_watcher.stop()
         self.root.quit()

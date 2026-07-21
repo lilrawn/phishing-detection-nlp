@@ -1,6 +1,7 @@
 """
 Gemini AI integration for advanced phishing detection
 """
+import os
 import requests
 import json
 import time
@@ -11,9 +12,14 @@ import re
 
 class GeminiAnalyzer:
     """Integrate Gemini API for advanced email analysis"""
-    
-    def __init__(self, api_key="AIzaSyDQaMm4k6zaNZq4ZvipZAVnougyn16CZ8w"):
-        self.api_key = api_key
+
+    def __init__(self, api_key=None):
+        self.api_key = api_key or os.environ.get('GEMINI_API_KEY')
+        if not self.api_key:
+            raise ValueError(
+                "No Gemini API key provided. Set the GEMINI_API_KEY environment "
+                "variable or pass api_key explicitly."
+            )
         # Use the correct model from your list
         self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
         # Alternative: you can also use:
@@ -250,5 +256,11 @@ Respond with ONLY the JSON, no other text."""
         self.running = False
         print("🤖 Gemini Analyzer stopped")
 
-# Create singleton instance
-gemini_analyzer = GeminiAnalyzer()
+# Create singleton instance. Gemini analysis is an optional enhancement, so a
+# missing API key shouldn't crash every module that imports this file --
+# callers should check `if gemini_analyzer is not None` before using it.
+try:
+    gemini_analyzer = GeminiAnalyzer()
+except ValueError as e:
+    print(f"⚠️ {e}")
+    gemini_analyzer = None

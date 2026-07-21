@@ -320,15 +320,33 @@ class DataCollector:
     
     def create_sample_dataset(self):
         """
-        Fallback: Create a sample dataset if no real data is found
+        Fallback used when no real data is found under RAW_DATA_DIR. Small
+        and not meant for real training -- just enough to exercise the
+        pipeline end-to-end when the real corpora aren't available.
         """
-        print("Creating sample phishing and legitimate email dataset...")
-        
-        # [Your existing sample creation code here]
-        # (Keep the sample creation code from your original file)
-        
-        
-    
+        print("  ⚠️  No real datasets found. Using a small built-in sample instead.")
+
+        phishing_samples = [
+            "URGENT: Your account has been limited. Click here to verify: http://fake-bank.com/verify",
+            "PayPal: Your account has been suspended. Update now: http://paypal-security.net",
+            "IRS Notice: Your tax refund is pending. Update information: http://irs-gov-refund.com",
+            "Apple ID: Your account has been locked. Verify: http://apple-id-verify.net",
+            "FedEx: Your package delivery failed. Reschedule: http://fedex-delivery.info",
+        ]
+        legitimate_samples = [
+            "Weekly team meeting on Friday at 10 AM in Conference Room B.",
+            "Your Amazon order #123-4567890 has been shipped and will arrive Monday.",
+            "LinkedIn: Sarah Johnson would like to connect with you.",
+            "Netflix: Your monthly statement is now available.",
+            "University: Spring semester registration opens November 15th.",
+        ]
+
+        return pd.DataFrame({
+            'text': phishing_samples + legitimate_samples,
+            'label': ['phishing'] * len(phishing_samples) + ['legitimate'] * len(legitimate_samples),
+            'source': 'sample',
+        })
+
     def load_dataset(self):
         """
         Main method to load dataset - tries real data first, falls back to samples

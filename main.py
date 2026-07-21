@@ -3,7 +3,6 @@ Main entry point for the Phishing Email Detection System
 """
 import os
 import sys
-import argparse
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -15,9 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.data_collection import DataCollector
 from src.preprocessing import DataPreprocessor
 from src.feature_extraction import FeatureExtractor
-from src.model_training import ModelTrainer
 from src.evaluation import ModelEvaluator
-from src.prediction_interface import PhishingPredictor, run_interactive_mode
 from config import RESULTS_DIR, MODELS_DIR
 
 
@@ -49,6 +46,7 @@ def train_pipeline():
     """
     Run the complete training pipeline
     """
+    setup_environment()
     print("\n🚀 Starting Training Pipeline...")
     start_time = datetime.now()
     
@@ -64,41 +62,50 @@ def train_pipeline():
     df = preprocessor.preprocess_dataset(df)
     print(f"   ✓ Preprocessed {len(df)} emails")
     
-    # Step 3: Feature Extraction
-    print("\n🔧 Step 3: Feature Extraction")
-    extractor = FeatureExtractor()
+    # Step 3: Data Splitting (BEFORE any feature fitting)
+    print("\n📊 Step 3: Splitting data (BEFORE feature fitting to prevent leakage)...")
+    from sklearn.model_selection import train_test_split
+    
+    # Get texts, numeric features, and labels
     texts = df['cleaned_text'].tolist()
-    
-    # Get TF-IDF features only (these are non-negative)
-    print("   Extracting TF-IDF features...")
-    tfidf_matrix = extractor.fit_transform_tfidf(texts)
-    
-    # Get numeric features
     numeric_features = df[['url_count', 'email_count', 'urgent_keyword_count', 
                           'text_length', 'word_count', 'avg_word_length',
                           'exclamation_count', 'all_caps_count']].values
-    
-    print(f"   TF-IDF features shape: {tfidf_matrix.shape}")
-    print(f"   Numeric features shape: {numeric_features.shape}")
-    
-    # Get labels
     y = df['label_encoded'].values
     
-    # Split data first
-    print("\n📊 Splitting data...")
-    from sklearn.model_selection import train_test_split
-    
-    # Split indices to ensure same split across feature sets
-    X_train_tfidf, X_test_tfidf, X_train_num, X_test_num, y_train, y_test = train_test_split(
-        tfidf_matrix, numeric_features, y, 
+    # Split BEFORE fitting vectorizer or scaler
+    texts_train, texts_test, numeric_train, numeric_test, y_train, y_test = train_test_split(
+        texts, numeric_features, y,
         test_size=0.2, random_state=42, stratify=y
     )
     
-    print(f"   Training set size: {X_train_tfidf.shape[0]} samples")
-    print(f"   Testing set size: {X_test_tfidf.shape[0]} samples")
+    print(f"   Training set size: {len(texts_train)} samples")
+    print(f"   Testing set size: {len(texts_test)} samples")
     
-    # Step 4: Model Training
-    print("\n🤖 Step 4: Model Training")
+    # Step 4: Feature Extraction (fit on training data ONLY)
+    print("\n🔧 Step 4: Feature Extraction")
+    extractor = FeatureExtractor()
+    
+    # Fit TF-IDF vectorizer ONLY on training texts
+    print("   Fitting TF-IDF vectorizer on training data...")
+    X_train_tfidf = extractor.fit_transform_tfidf(texts_train)
+    
+    # Transform test texts using the fitted vectorizer (no fitting)
+    print("   Transforming test data with fitted vectorizer...")
+    X_test_tfidf = extractor.transform_tfidf(texts_test)
+    
+    print(f"   TF-IDF features shape (train): {X_train_tfidf.shape}")
+    print(f"   TF-IDF features shape (test): {X_test_tfidf.shape}")
+    print(f"   Numeric features shape (train): {numeric_train.shape}")
+    print(f"   Numeric features shape (test): {numeric_test.shape}")
+     
+    # Combine features: fit scaler on training data ONLY
+    print("\n   Combining TF-IDF and numeric features (scaler fitted on train only)...")
+    X_train_combined = extractor.combine_features(X_train_tfidf, numeric_train, fit=True)
+    X_test_combined = extractor.combine_features(X_test_tfidf, numeric_test, fit=False)
+    
+    # Step 5: Model Training
+    print("\n🤖 Step 5: Model Training")
     from sklearn.naive_bayes import MultinomialNB
     from sklearn.linear_model import LogisticRegression
     from sklearn.svm import SVC
@@ -127,13 +134,9 @@ def train_pipeline():
     print(f"   Precision: {results['Naive Bayes']['precision']:.4f}")
     print(f"   Recall: {results['Naive Bayes']['recall']:.4f}")
     print(f"   F1-Score: {results['Naive Bayes']['f1_score']:.4f}")
-    
+     
     # 2. Logistic Regression - uses combined features
     print("\n📊 Training Logistic Regression...")
-    # Combine features for training
-    X_train_combined = hstack([X_train_tfidf, csr_matrix(X_train_num)])
-    X_test_combined = hstack([X_test_tfidf, csr_matrix(X_test_num)])
-    
     lr_model = LogisticRegression(C=1.0, max_iter=1000, random_state=42, class_weight='balanced')
     lr_model.fit(X_train_combined, y_train)
     y_pred_lr = lr_model.predict(X_test_combined)
@@ -199,8 +202,8 @@ def train_pipeline():
     print(f"   Accuracy: {results[best_model_name]['accuracy']:.4f}")
     print(f"{'='*50}")
     
-    # Step 5: Save artifacts
-    print("\n💾 Step 5: Saving Models and Vectorizers")
+    # Step 6: Save artifacts
+    print("\n💾 Step 6: Saving Models and Vectorizers")
     
     # Save all models
     import joblib
@@ -218,8 +221,8 @@ def train_pipeline():
     # Save vectorizer
     extractor.save_vectorizer()
     
-    # Step 6: Evaluation
-    print("\n📊 Step 6: Model Evaluation")
+    # Step 7: Evaluation
+    print("\n📊 Step 7: Model Evaluation")
     evaluator = ModelEvaluator()
     
     # Generate comparison table
@@ -257,5 +260,9 @@ def train_pipeline():
     print(f"   Total time: {duration}")
     print(f"   Best model: {best_model_name} (F1: {results[best_model_name]['f1_score']:.4f})")
     print("="*70)
-    
+
     return results
+
+
+if __name__ == "__main__":
+    train_pipeline()

@@ -201,7 +201,7 @@ class NotificationManager:
     def show_phishing_alert(self, email_data, result):
         """Show phishing alert notification"""
         title = "⚠️ PHISHING ALERT!"
-        message = f"From: {email_data['from']}\nSubject: {email_data['subject'][:30]}...\nConfidence: {result['final_score']:.1f}%"
+        message = f"From: {email_data['from']}\nSubject: {email_data['subject'][:30]}...\nConfidence: {result.get('confidence', 0):.1f}%"
         self.show_notification(title, message, 'warning')
     
     def show_legitimate_alert(self, email_data, result):

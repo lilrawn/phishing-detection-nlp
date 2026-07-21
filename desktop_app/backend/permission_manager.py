@@ -9,14 +9,16 @@ import ctypes
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, simpledialog
+from cryptography.fernet import Fernet
 
 class PermissionManager:
     """Manage user permissions for email access and system integration"""
-    
+
     def __init__(self):
         self.os_name = platform.system()
         self.config_dir = Path.home() / '.phishing_detector'
         self.config_file = self.config_dir / 'config.json'
+        self.key_file = self.config_dir / '.key'
         self.permissions = self.load_permissions()
         
     def load_permissions(self):
@@ -25,7 +27,8 @@ class PermissionManager:
             try:
                 with open(self.config_file, 'r') as f:
                     return json.load(f)
-            except:
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"⚠️ Could not read {self.config_file} ({e}); using defaults")
                 return self.get_default_permissions()
         return self.get_default_permissions()
     
@@ -41,7 +44,8 @@ class PermissionManager:
                 'check_interval': 30,  # seconds
                 'auto_scan': True,
                 'show_notifications': True,
-                'sound_alerts': True
+                'sound_alerts': True,
+                'ml_weight': 0.7  # fraction of the score from the ML model vs. rule-based checks
             }
         }
     
@@ -159,6 +163,8 @@ class PermissionManager:
             self.setup_windows_autostart()
         elif self.os_name == 'Darwin':
             self.setup_macos_autostart()
+        elif self.os_name == 'Linux':
+            self.setup_linux_autostart()
     
     def setup_windows_autostart(self):
         """Add to Windows startup"""
@@ -202,15 +208,50 @@ class PermissionManager:
         
         plist_path.write_text(plist_content)
         os.system(f'launchctl load {plist_path}')
-    
+
+    def setup_linux_autostart(self):
+        """Add to Linux startup via the XDG autostart spec (works across
+        GNOME/KDE/XFCE etc. without needing systemd)."""
+        autostart_dir = Path.home() / '.config' / 'autostart'
+        autostart_dir.mkdir(parents=True, exist_ok=True)
+        desktop_entry_path = autostart_dir / 'phishingdetector.desktop'
+
+        app_path = sys.executable
+        script_path = Path(__file__).parent.parent / 'main.py'
+
+        desktop_entry = f'''[Desktop Entry]
+Type=Application
+Name=Phishing Detector
+Comment=Real-time phishing email detection
+Exec="{app_path}" "{script_path}" --background
+Icon=phishingdetector
+Terminal=false
+X-GNOME-Autostart-enabled=true
+'''
+        desktop_entry_path.write_text(desktop_entry)
+        os.chmod(desktop_entry_path, 0o755)
+
+    def _get_or_create_key(self):
+        """Load the local Fernet key, generating one on first use.
+        Stored outside config.json (and outside git) since anyone who reads
+        the key can decrypt every stored password."""
+        self.config_dir.mkdir(exist_ok=True)
+        if self.key_file.exists():
+            return self.key_file.read_bytes()
+        key = Fernet.generate_key()
+        self.key_file.write_bytes(key)
+        os.chmod(self.key_file, 0o600)
+        return key
+
     def encrypt_password(self, password):
-        """Simple encryption (in production, use proper encryption)"""
-        # For demo purposes - in production, use cryptography library
-        return ''.join(chr(ord(c) + 1) for c in password)
-    
+        """Encrypt a password for local storage."""
+        fernet = Fernet(self._get_or_create_key())
+        return fernet.encrypt(password.encode()).decode()
+
     def decrypt_password(self, encrypted):
-        """Simple decryption"""
-        return ''.join(chr(ord(c) - 1) for c in encrypted)
+        """Decrypt a password previously stored via encrypt_password."""
+        fernet = Fernet(self._get_or_create_key())
+        return fernet.decrypt(encrypted.encode()).decode()
     
     def check_permission(self, permission_name):
         """Check if specific permission is granted"""

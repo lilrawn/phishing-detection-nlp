@@ -1,6 +1,8 @@
 # Desktop-specific requirements
+cryptography==41.0.7
 pyinstaller==5.13.0
 pyobjc==9.0.1 ; platform_system == "Darwin"
 pywin32==305 ; platform_system == "Windows"
 pystray==0.19.1
 Pillow==10.0.0
+plyer==2.1.0
