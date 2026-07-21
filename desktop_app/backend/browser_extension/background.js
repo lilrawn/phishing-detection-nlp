@@ -80,7 +80,18 @@ if (!initialized) {
 
     // Listen for tab updates
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-        if (changeInfo.status === 'complete' && tab.url && tab.url.includes('mail.google.com')) {
+        let isGmailHost = false;
+        if (tab.url) {
+            try {
+                const parsedUrl = new URL(tab.url);
+                const host = parsedUrl.hostname.toLowerCase();
+                isGmailHost = host === 'mail.google.com' || host.endsWith('.mail.google.com');
+            } catch (e) {
+                isGmailHost = false;
+            }
+        }
+
+        if (changeInfo.status === 'complete' && isGmailHost) {
             console.log('📧 Gmail tab detected:', tabId);
             activeGmailTabs[tabId] = {
                 url: tab.url,
