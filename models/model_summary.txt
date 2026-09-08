@@ -1,14 +1,15 @@
 PHISHING DETECTION MODEL SUMMARY
 ========================================
-F1-Score:  0.9813
-Accuracy:  0.9783
-Precision: 0.9825
-Recall:    0.9801
+Model: SVM (linear kernel, C=1.0, class_weight=balanced)
+Trained: 2026-09-08, scikit-learn 1.5.0
+Dataset: 57,446 emails (SpamAssassin corpus + email_text.csv + Nazario_5.csv)
+Train/test split: 45,956 / 11,490 (80/20, stratified, random_state=42)
 
-Confusion Matrix:
-TN: 4632  FP: 115
-FN: 131  TP: 6452
+F1-Score:  0.9877
+Accuracy:  0.9863
+Precision: 0.9861
+Recall:    0.9893
 
-Probability Ranges:
-Legitimate: 0-26.1%
-Phishing:   70.7-100%
+Confusion Matrix (test set, n=11,490):
+TN: 5038  FP: 89
+FN: 68    TP: 6295
