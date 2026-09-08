@@ -56,10 +56,10 @@ class EmailDetailDialog:
         # Result badge
         if is_phishing:
             badge_text = "🔴 PHISHING DETECTED"
-            badge_color = '#ff4444'
+            badge_color = '#B0524F'  # muted red -- see PhishingDashboard.COLORS['danger']
         else:
             badge_text = "🟢 LEGITIMATE EMAIL"
-            badge_color = '#44aa44'
+            badge_color = '#4A8C5E'  # muted green -- see PhishingDashboard.COLORS['safe']
         
         badge = tk.Label(header_frame, text=badge_text, bg=badge_color, 
                         fg='white', font=('Helvetica', 14, 'bold'),
@@ -74,7 +74,7 @@ class EmailDetailDialog:
         confidence = result.get('confidence', 0)
         ttk.Label(conf_frame, text=f"{confidence:.1f}%", 
                  font=('Helvetica', 14, 'bold'),
-                 foreground='red' if is_phishing else 'green').pack(side=tk.LEFT, padx=5)
+                 foreground='#B0524F' if is_phishing else '#4A8C5E').pack(side=tk.LEFT, padx=5)
         
         # Email metadata
         meta_frame = ttk.LabelFrame(main_frame, text="Email Information", padding="10")

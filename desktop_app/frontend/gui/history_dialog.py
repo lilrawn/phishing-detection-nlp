@@ -196,8 +196,8 @@ class HistoryDialog:
                 ), tags=tags)
             
             # Configure tag colors
-            self.tree.tag_configure('phishing', background='#ffcccc')
-            self.tree.tag_configure('legitimate', background='#ccffcc')
+            self.tree.tag_configure('phishing', background='#F0DCDC')
+            self.tree.tag_configure('legitimate', background='#DCEBDF')
             
             # Update status
             self.status_var.set(f"Showing {start_idx + 1}-{end_idx} of {len(filtered_data)} records")
@@ -391,9 +391,9 @@ class HistoryDialog:
         pred_label.pack(side=tk.LEFT)
         
         if values[5] == 'PHISHING':
-            pred_label.configure(foreground='red')
+            pred_label.configure(foreground='#B0524F')
         else:
-            pred_label.configure(foreground='green')
+            pred_label.configure(foreground='#4A8C5E')
         
         # Confidence
         ttk.Label(frame, text=f"Confidence: {values[6]}").pack(anchor=tk.W, pady=2)

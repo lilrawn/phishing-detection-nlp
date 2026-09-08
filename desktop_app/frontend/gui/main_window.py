@@ -29,7 +29,23 @@ from .browser_setup_dialog import BrowserSetupDialog
 
 class PhishingDashboard:
     """Main dashboard window"""
-    
+
+    # Tk's literal named colors ('green', 'red', ...) render fully
+    # saturated regardless of the system's light/dark appearance, which
+    # reads as neon/glaring against macOS dark mode's auto-dark chrome.
+    # Muted equivalents keep the same status semantics without the glare.
+    COLORS = {
+        'safe': '#4A8C5E',       # legitimate / connected / success
+        'safe_bg': '#DCEBDF',    # row-highlight tint for the same
+        'danger': '#B0524F',     # phishing / disconnected / error
+        'danger_bg': '#F0DCDC',
+        'warning': '#C08A3E',    # waiting / caution
+        'warning_bg': '#F0E6CC',
+        'info': '#4A6FA0',       # informational status
+        'browser': '#7D699C',    # browser/extension indicators
+        'mode': '#3F8080',       # detection-mode indicator
+    }
+
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Phishing Detector Dashboard")
@@ -245,11 +261,11 @@ class PhishingDashboard:
         self.google_status.grid(row=0, column=3, padx=10)
         
         # Browser integration status
-        self.browser_integration_status = ttk.Label(status_frame, text="🌐 Browser Extension: Waiting for connection...", foreground='orange')
+        self.browser_integration_status = ttk.Label(status_frame, text="🌐 Browser Extension: Waiting for connection...", foreground=self.COLORS['warning'])
         self.browser_integration_status.grid(row=0, column=4, padx=10)
         
         # Current mode
-        self.mode_status = ttk.Label(status_frame, text="🔄 Mode: Both", foreground='blue')
+        self.mode_status = ttk.Label(status_frame, text="🔄 Mode: Both", foreground=self.COLORS['info'])
         self.mode_status.grid(row=0, column=5, padx=10)
         
         # Last scan time
@@ -274,19 +290,19 @@ class PhishingDashboard:
         # Card 2: Phishing Detected
         card2 = ttk.LabelFrame(stats_frame, text="Phishing Detected", padding="10")
         card2.grid(row=0, column=1, padx=5, sticky=(tk.W, tk.E))
-        self.phishing_count = ttk.Label(card2, text="0", font=('Helvetica', 24, 'bold'), foreground='red')
+        self.phishing_count = ttk.Label(card2, text="0", font=('Helvetica', 24, 'bold'), foreground=self.COLORS['danger'])
         self.phishing_count.pack()
         
         # Card 3: Safe Emails
         card3 = ttk.LabelFrame(stats_frame, text="Safe Emails", padding="10")
         card3.grid(row=0, column=2, padx=5, sticky=(tk.W, tk.E))
-        self.safe_count = ttk.Label(card3, text="0", font=('Helvetica', 24, 'bold'), foreground='green')
+        self.safe_count = ttk.Label(card3, text="0", font=('Helvetica', 24, 'bold'), foreground=self.COLORS['safe'])
         self.safe_count.pack()
         
         # Card 4: Browser Scans
         card4 = ttk.LabelFrame(stats_frame, text="Browser Scans", padding="10")
         card4.grid(row=0, column=3, padx=5, sticky=(tk.W, tk.E))
-        self.browser_scans = ttk.Label(card4, text="0", font=('Helvetica', 24, 'bold'), foreground='blue')
+        self.browser_scans = ttk.Label(card4, text="0", font=('Helvetica', 24, 'bold'), foreground=self.COLORS['info'])
         self.browser_scans.pack()
         
         # Card 5: Accuracy
@@ -304,7 +320,7 @@ class PhishingDashboard:
         # Card 7: Extensions Connected
         card7 = ttk.LabelFrame(stats_frame, text="Extensions", padding="10")
         card7.grid(row=0, column=6, padx=5, sticky=(tk.W, tk.E))
-        self.extensions_count = ttk.Label(card7, text="0", font=('Helvetica', 24, 'bold'), foreground='purple')
+        self.extensions_count = ttk.Label(card7, text="0", font=('Helvetica', 24, 'bold'), foreground=self.COLORS['browser'])
         self.extensions_count.pack()
     
     def setup_notifications(self, parent):
@@ -363,13 +379,13 @@ class PhishingDashboard:
         self.log_text.configure(yscrollcommand=log_scrollbar.set)
         
         # Configure tags for colors
-        self.log_text.tag_configure('phishing', foreground='red', font=('Courier', 9, 'bold'))
-        self.log_text.tag_configure('legitimate', foreground='green', font=('Courier', 9, 'bold'))
-        self.log_text.tag_configure('info', foreground='blue', font=('Courier', 9))
-        self.log_text.tag_configure('browser', foreground='purple', font=('Courier', 9, 'bold'))
-        self.log_text.tag_configure('warning', foreground='orange', font=('Courier', 9, 'bold'))
-        self.log_text.tag_configure('error', foreground='red', font=('Courier', 9, 'bold'))
-        self.log_text.tag_configure('mode', foreground='teal', font=('Courier', 9, 'bold'))
+        self.log_text.tag_configure('phishing', foreground=self.COLORS['danger'], font=('Courier', 9, 'bold'))
+        self.log_text.tag_configure('legitimate', foreground=self.COLORS['safe'], font=('Courier', 9, 'bold'))
+        self.log_text.tag_configure('info', foreground=self.COLORS['info'], font=('Courier', 9))
+        self.log_text.tag_configure('browser', foreground=self.COLORS['browser'], font=('Courier', 9, 'bold'))
+        self.log_text.tag_configure('warning', foreground=self.COLORS['warning'], font=('Courier', 9, 'bold'))
+        self.log_text.tag_configure('error', foreground=self.COLORS['danger'], font=('Courier', 9, 'bold'))
+        self.log_text.tag_configure('mode', foreground=self.COLORS['mode'], font=('Courier', 9, 'bold'))
         
         # Initial log message
         self.add_log("🛡️ Phishing Detector started", 'info')
@@ -444,9 +460,9 @@ class PhishingDashboard:
         """Update the connection indicator dot"""
         self.connection_indicator.delete("all")
         if connected:
-            self.connection_indicator.create_oval(2, 2, 18, 18, fill='green', outline='darkgreen')
+            self.connection_indicator.create_oval(2, 2, 18, 18, fill=self.COLORS['safe'], outline=self.COLORS['safe'])
         else:
-            self.connection_indicator.create_oval(2, 2, 18, 18, fill='red', outline='darkred')
+            self.connection_indicator.create_oval(2, 2, 18, 18, fill=self.COLORS['danger'], outline=self.COLORS['danger'])
     
     def setup_controls(self, parent):
         """Setup control buttons"""
@@ -521,13 +537,13 @@ class PhishingDashboard:
                 status_text += f" - {extension_count} active"
             self.browser_integration_status.config(
                 text=status_text, 
-                foreground='green'
+                foreground=self.COLORS['safe']
             )
             self.extensions_count.config(text=str(extension_count if extension_count > 0 else 1))
         else:
             self.browser_integration_status.config(
                 text="🌐 Browser Extension: Disconnected", 
-                foreground='red'
+                foreground=self.COLORS['danger']
             )
             self.extensions_count.config(text="0")
     
@@ -555,13 +571,13 @@ class PhishingDashboard:
             if not self.browser_messages_received:
                 self.browser_integration_status.config(
                     text="🌐 Browser Extension: Waiting for connection...", 
-                    foreground='orange'
+                    foreground=self.COLORS['warning']
                 )
                 self.update_connection_indicator(False)
         else:
             self.browser_integration_status.config(
                 text="🌐 Browser Extension: Server not running", 
-                foreground='red'
+                foreground=self.COLORS['danger']
             )
             self.update_connection_indicator(False)
         
@@ -690,13 +706,13 @@ class PhishingDashboard:
         try:
             response = requests.get('http://localhost:9877/api/health', timeout=1)
             if response.status_code == 200:
-                self.browser_integration_status.config(text="🌐 Browser Extension: Waiting for connection...", foreground='orange')
+                self.browser_integration_status.config(text="🌐 Browser Extension: Waiting for connection...", foreground=self.COLORS['warning'])
                 self.add_log("🌐 Browser integration server detected on port 9877", 'info')
             else:
-                self.browser_integration_status.config(text="🌐 Browser Extension: Disconnected", foreground='red')
+                self.browser_integration_status.config(text="🌐 Browser Extension: Disconnected", foreground=self.COLORS['danger'])
                 self.add_log("⚠️ Browser integration server not running", 'warning')
         except:
-            self.browser_integration_status.config(text="🌐 Browser Extension: Disconnected", foreground='red')
+            self.browser_integration_status.config(text="🌐 Browser Extension: Disconnected", foreground=self.COLORS['danger'])
             self.add_log("⚠️ Browser integration server not running", 'warning')
         
         self.update_connection_indicator(False)
@@ -869,8 +885,8 @@ class PhishingDashboard:
         self.email_cache[email_id] = browser_data
         self.email_id_map[item_id] = email_id
         
-        self.notif_tree.tag_configure('phishing', background='#ffcccc')
-        self.notif_tree.tag_configure('legitimate', background='#ccffcc')
+        self.notif_tree.tag_configure('phishing', background=self.COLORS['danger_bg'])
+        self.notif_tree.tag_configure('legitimate', background=self.COLORS['safe_bg'])
         
         self.add_log(f"   ✅ Browser email added to dashboard", 'info')
     
@@ -980,8 +996,8 @@ class PhishingDashboard:
             ), tags=tags)
             
             self.email_id_map[item_id] = email_id
-            self.notif_tree.tag_configure('phishing', background='#ffcccc')
-            self.notif_tree.tag_configure('legitimate', background='#ccffcc')
+            self.notif_tree.tag_configure('phishing', background=self.COLORS['danger_bg'])
+            self.notif_tree.tag_configure('legitimate', background=self.COLORS['safe_bg'])
             
         except Exception as e:
             self.add_log(f"❌ Error in add_notification: {e}", 'error')
@@ -1258,9 +1274,9 @@ class PhishingDashboard:
                 status
             ), tags=tags)
         
-        tree.tag_configure('suspicious', background='#ffcccc')
-        tree.tag_configure('neutral', background='#fff3cd')
-        tree.tag_configure('trusted', background='#ccffcc')
+        tree.tag_configure('suspicious', background=self.COLORS['danger_bg'])
+        tree.tag_configure('neutral', background=self.COLORS['warning_bg'])
+        tree.tag_configure('trusted', background=self.COLORS['safe_bg'])
         
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(fill=tk.X, pady=10)
