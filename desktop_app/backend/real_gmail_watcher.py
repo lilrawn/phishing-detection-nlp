@@ -16,6 +16,8 @@ import time
 import sys
 from pathlib import Path
 
+from cryptography.fernet import InvalidToken
+
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.predictor import PhishingPredictor
@@ -26,6 +28,23 @@ IMAP_HOST = 'imap.gmail.com'
 IMAP_PORT = 993
 IMAP_TIMEOUT_SECONDS = 15
 INITIAL_SWEEP_COUNT = 30  # most recent messages to scan on first connection
+
+# A real Gmail App Password is always exactly this many characters (4
+# groups of 4, no spaces once entered). Google's own account password
+# doesn't work for IMAP once 2-Step Verification is on -- Gmail rejects it
+# outright -- so a stored password of any other length is almost always
+# that mistake, not something a retry will fix.
+GMAIL_APP_PASSWORD_LENGTH = 16
+
+
+class GmailCredentialError(Exception):
+    """
+    A credential problem diagnosed before (or without) a live IMAP
+    round-trip -- undecryptable stored password, or one that's clearly not
+    an App Password by length. Kept distinct from imaplib's own exceptions
+    so _scan_all_accounts can report it without implying a network attempt
+    even happened.
+    """
 
 
 class RealGmailWatcher(threading.Thread):
@@ -66,16 +85,45 @@ class RealGmailWatcher(threading.Thread):
         for index, account in enumerate(accounts):
             if not account.get('enabled', True):
                 continue
+            email_addr = account.get('email', '<unknown>')
             try:
                 self._scan_account(index, account)
+            except GmailCredentialError as e:
+                print(f"⚠️ [{email_addr}] {e}")
+            except imaplib.IMAP4.error as e:
+                message = str(e)
+                print(f"⚠️ [{email_addr}] IMAP login rejected: {message}")
+                if 'AUTHENTICATIONFAILED' in message.upper() or not message:
+                    print("   This means Gmail rejected the stored password outright, not a "
+                          "network issue. If this account has 2-Step Verification on "
+                          "(recommended), Gmail requires a 16-character App Password for IMAP "
+                          "-- your regular account password will not work here. Generate one "
+                          "at https://myaccount.google.com/apppasswords, then re-enter it for "
+                          "this account in Settings.")
+                else:
+                    print("   Check that IMAP is enabled in Gmail settings "
+                          "(Settings > See all settings > Forwarding and POP/IMAP).")
             except Exception as e:
-                print(f"⚠️ Could not scan {account.get('email', '<unknown>')}: {e}")
-                print("   Check that IMAP is enabled in Gmail settings "
-                      "(Settings > See all settings > Forwarding and POP/IMAP) "
-                      "and that the app password is still valid.")
+                print(f"⚠️ [{email_addr}] Could not scan: {type(e).__name__}: {e}")
 
     def _connect(self, account):
-        password = self.permission_manager.decrypt_password(account['password'])
+        try:
+            password = self.permission_manager.decrypt_password(account['password'])
+        except InvalidToken:
+            raise GmailCredentialError(
+                "Saved password could not be decrypted -- the encryption key on this machine "
+                "doesn't match the one it was originally saved with (this happens if "
+                "~/.phishing_detector/.key was regenerated, deleted, or the config was copied "
+                "from a different machine/account). Remove and re-add this account in Settings; "
+                "there's no way to recover the original password from here.")
+
+        if len(password) != GMAIL_APP_PASSWORD_LENGTH:
+            print(f"⚠️ [{account['email']}] Stored password is {len(password)} character(s) -- "
+                  f"a real Gmail App Password is always exactly {GMAIL_APP_PASSWORD_LENGTH}. "
+                  "Attempting the connection anyway, but if this fails, generate an App "
+                  "Password at https://myaccount.google.com/apppasswords and re-enter it in "
+                  "Settings rather than your regular Gmail password.")
+
         conn = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=IMAP_TIMEOUT_SECONDS)
         conn.login(account['email'], password)
         conn.select('INBOX')
