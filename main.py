@@ -55,7 +55,25 @@ def train_pipeline():
     collector = DataCollector()
     df = collector.load_dataset()
     print(f"   ✓ Loaded {len(df)} emails")
-    
+
+    # Step 1b: Fold in user-corrected feedback -- the whole point of
+    # marking a prediction wrong in the dashboard is that the next
+    # retrain should actually learn from it, not just log it. Only pulls
+    # in emails the database has ground truth for: unlabeled scans the
+    # user never corrected (label IS NULL, corrected_label IS NULL in
+    # export_for_training's terms) are silently excluded, same as before.
+    from src.database import db as _feedback_db
+    feedback_df = _feedback_db.export_for_training(limit=10000)
+    if not feedback_df.empty:
+        before = len(df)
+        feedback_df = feedback_df[['email_text', 'label']].rename(columns={'email_text': 'text'})
+        feedback_df['source'] = 'user_feedback'
+        df = pd.concat([df, feedback_df], ignore_index=True)
+        df = df.drop_duplicates(subset=['text'], keep='last')  # corrections win over the original
+        print(f"   ✓ Folded in {len(feedback_df)} corrected/labeled feedback email(s) from the "
+              f"database ({len(df) - before} are new text not already in the static corpus; "
+              f"the rest override an existing sample's label)")
+
     # Step 2: Preprocessing
     print("\n🧹 Step 2: Text Preprocessing")
     preprocessor = DataPreprocessor()

@@ -1065,25 +1065,35 @@ class PhishingDashboard:
         if email_id and email_id in self.email_cache:
             data = self.email_cache[email_id]
             sender = data['email']['from']
-            
+
             self.update_sender_reputation_manual(sender, is_phishing=False)
             self.update_email_display(email_id, is_phishing=False)
-            
+            saved = db.correct_prediction(email_id, 'LEGITIMATE')
+
             self.add_log(f"✅ User feedback: Marked as legitimate - {sender}", 'legitimate')
-            messagebox.showinfo("Feedback Recorded", 
-                              "Thank you! Sender reputation updated.")
-    
+            messagebox.showinfo(
+                "Feedback Recorded",
+                "Thank you! Sender reputation updated." +
+                ("\nSaved for the next model retrain." if saved else
+                 "\n(Not saved to the training set -- this email has no database record, "
+                 "e.g. a sample scan taken before the app started.)"))
+
     def mark_as_phishing(self, email_id):
         if email_id and email_id in self.email_cache:
             data = self.email_cache[email_id]
             sender = data['email']['from']
-            
+
             self.update_sender_reputation_manual(sender, is_phishing=True)
             self.update_email_display(email_id, is_phishing=True)
-            
+            saved = db.correct_prediction(email_id, 'PHISHING')
+
             self.add_log(f"🔴 User feedback: Confirmed phishing - {sender}", 'phishing')
-            messagebox.showinfo("Feedback Recorded", 
-                              "Thank you for confirming!")
+            messagebox.showinfo(
+                "Feedback Recorded",
+                "Thank you for confirming!" +
+                ("\nSaved for the next model retrain." if saved else
+                 "\n(Not saved to the training set -- this email has no database record, "
+                 "e.g. a sample scan taken before the app started.)"))
     
     def update_email_display(self, email_id, is_phishing):
         for item_id, eid in self.email_id_map.items():

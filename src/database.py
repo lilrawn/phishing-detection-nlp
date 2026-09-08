@@ -65,7 +65,19 @@ class EmailDatabase:
                 FOREIGN KEY (email_id) REFERENCES emails (id)
             )
         ''')
-        
+
+        # emails.corrected_label holds the human-confirmed ground truth
+        # once a user marks a prediction right/wrong via the dashboard,
+        # kept separate from predicted_label (the model's original,
+        # immutable output) so retraining can prefer it without losing the
+        # record of what the model actually said. ALTER TABLE ... ADD
+        # COLUMN has no IF NOT EXISTS in sqlite, so this is guarded for
+        # every run after the first against an already-migrated database.
+        try:
+            cursor.execute('ALTER TABLE emails ADD COLUMN corrected_label TEXT')
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
         conn.commit()
         conn.close()
         print(f"✅ Database initialized: {self.db_path}")
@@ -111,14 +123,45 @@ class EmailDatabase:
         """Save user feedback on prediction"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         cursor.execute('''
             INSERT INTO feedback (email_id, correct_prediction, notes)
             VALUES (?, ?, ?)
         ''', (email_id, correct, notes))
-        
+
         conn.commit()
         conn.close()
+
+    def correct_prediction(self, email_id, corrected_label, notes=""):
+        """
+        Record a user's correction of a prediction as ground truth for
+        retraining, and log it in the feedback table.
+
+        `corrected_label` is 'PHISHING' or 'LEGITIMATE' (the label the
+        user says is actually correct -- not necessarily different from
+        what the model predicted; confirming a correct prediction is
+        itself useful signal, recorded the same way). Returns False if
+        `email_id` doesn't exist, True otherwise.
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute('SELECT predicted_label FROM emails WHERE id = ?', (email_id,))
+            row = cursor.fetchone()
+            if row is None:
+                return False
+            predicted_label = row[0]
+
+            cursor.execute('UPDATE emails SET corrected_label = ? WHERE id = ?',
+                            (corrected_label, email_id))
+            cursor.execute('''
+                INSERT INTO feedback (email_id, user_feedback, correct_prediction, notes)
+                VALUES (?, ?, ?, ?)
+            ''', (email_id, corrected_label, predicted_label == corrected_label, notes))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
     
     def get_statistics(self):
         """Get database statistics"""
@@ -157,17 +200,25 @@ class EmailDatabase:
             conn.close()
 
     def export_for_training(self, limit=1000):
-        """Export emails for retraining"""
+        """
+        Export emails for retraining, preferring the user-corrected label
+        (emails.corrected_label, set via correct_prediction()) over the
+        model's own predicted_label wherever a correction exists -- the
+        whole point of the feedback loop is that a corrected mistake
+        shouldn't be re-taught to the next model as if it were right.
+        """
         conn = sqlite3.connect(self.db_path)
         try:
             return pd.read_sql("""
                 SELECT email_text,
                        CASE
-                           WHEN predicted_label = 'PHISHING' THEN 'phishing'
+                           WHEN COALESCE(corrected_label, predicted_label) = 'PHISHING' THEN 'phishing'
                            ELSE 'legitimate'
-                       END as label
+                       END as label,
+                       corrected_label IS NOT NULL as is_user_corrected
                 FROM emails
-                WHERE label IS NULL  -- Only emails without true labels (user submitted)
+                WHERE label IS NULL           -- not one of the original statically-labeled samples
+                   OR corrected_label IS NOT NULL  -- unless a user has since corrected it
                 ORDER BY created_at DESC
                 LIMIT ?
             """, conn, params=(limit,))
