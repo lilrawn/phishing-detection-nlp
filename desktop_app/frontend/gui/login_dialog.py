@@ -113,15 +113,28 @@ class LoginDialog:
             messagebox.showerror("Error", "Please enter a valid email address")
             return
         
-        # Save credentials
+        # Save credentials -- update the existing entry for this email if
+        # one exists (e.g. re-adding an account to replace a stale/invalid
+        # password) rather than appending a duplicate that would leave the
+        # old broken entry to keep failing on every scan alongside the new
+        # working one.
+        accounts = self.permission_manager.permissions['gmail_accounts']
+        encrypted_password = self.permission_manager.encrypt_password(password)
+        existing = next((a for a in accounts if a.get('email', '').lower() == email.lower()), None)
+        if existing:
+            existing['password'] = encrypted_password
+            existing['enabled'] = True
+            existing['last_uid'] = None  # re-sweep from scratch with the new credentials
+            existing['last_check'] = None
+        else:
+            accounts.append({
+                'email': email,
+                'password': encrypted_password,
+                'enabled': True,
+                'last_check': None
+            })
         self.permission_manager.permissions['gmail_access'] = True
-        self.permission_manager.permissions['gmail_accounts'].append({
-            'email': email,
-            'password': self.permission_manager.encrypt_password(password),
-            'enabled': True,
-            'last_check': None
-        })
         self.permission_manager.save_permissions()
-        
+
         messagebox.showinfo("Success", "✅ Gmail connected successfully!")
         self.dialog.destroy()
