@@ -2,7 +2,10 @@
 cryptography==50.0.0
 pyinstaller==6.0.0
 pyobjc==9.0.1 ; platform_system == "Darwin"
+pyobjus==1.2.4 ; platform_system == "Darwin"
 pywin32==305 ; platform_system == "Windows"
 pystray==0.19.1
 Pillow==12.3.0
 plyer==2.1.0
+python-whois==0.9.6
+tldextract==5.3.2
