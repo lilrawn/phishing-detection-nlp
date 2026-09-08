@@ -366,8 +366,9 @@ class PhishingPredictor:
         # Not a known brand or an obvious typosquat/impersonation of one --
         # verify the domain can actually receive mail (live DNS, or the
         # offline known-phishing-domain list when there's no connectivity).
-        suspicious, reason, _source = check_sender_domain(domain)
-        return {'suspicious': suspicious, 'reason': reason}
+        suspicious, reason, source = check_sender_domain(domain)
+        return {'suspicious': suspicious, 'reason': reason,
+                'established': source == 'dns+whois-established'}
 
     def check_authentication(self, auth_results):
         """
@@ -526,6 +527,17 @@ class PhishingPredictor:
             if sender_result['suspicious']:
                 score += 15
                 reasons.append(f"Suspicious sender: {sender_result['reason']}")
+            elif sender_result.get('established'):
+                # LEGITIMATE_DOMAINS only covers a handful of hardcoded
+                # consumer brands -- a WHOIS-confirmed 2+ year old domain
+                # with valid mail servers and no phishing-sample history is
+                # real evidence of legitimacy for everything outside that
+                # list, not just "nothing looked wrong". Without this, the
+                # rule score gives such senders zero credit, leaving
+                # nothing to counterbalance an overconfident ML score on
+                # short, credential/code-themed text -- the exact template
+                # real 2FA emails and phishing both use.
+                score = max(0, score - 15)
 
         auth_result = self.check_authentication(auth_results)
         if auth_result:
