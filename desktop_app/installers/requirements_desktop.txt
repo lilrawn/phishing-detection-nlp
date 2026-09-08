@@ -1,5 +1,5 @@
 # Desktop-specific requirements
-cryptography==48.0.1
+cryptography==50.0.0
 pyinstaller==6.0.0
 pyobjc==9.0.1 ; platform_system == "Darwin"
 pywin32==305 ; platform_system == "Windows"
