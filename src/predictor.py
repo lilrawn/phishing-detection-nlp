@@ -344,6 +344,45 @@ class PhishingPredictor:
         suspicious, reason, _source = check_sender_domain(domain)
         return {'suspicious': suspicious, 'reason': reason}
 
+    def check_authentication(self, auth_results):
+        """
+        Score a parsed Authentication-Results verdict -- see
+        email_verifier.get_trusted_authentication_results() for how to
+        obtain one safely (only from mail fetched directly via IMAP/API,
+        never from a header read off an arbitrary/forwarded/pasted
+        message, which is trivially forgeable).
+
+        Returns {'suspicious': bool, 'reason': str} or None when there's
+        nothing to say -- no auth_results, or every mechanism was silent.
+        Absence of a signal is not evidence of anything; only a fail (or a
+        clean sweep of passes) is worth reporting.
+        """
+        if not auth_results:
+            return None
+        spf, dkim, dmarc = auth_results.get('spf'), auth_results.get('dkim'), auth_results.get('dmarc')
+
+        if dmarc == 'fail':
+            return {'suspicious': True,
+                    'reason': "DMARC authentication failed -- sender's From address does not "
+                              "match its own authenticated domain"}
+        if dkim == 'fail':
+            return {'suspicious': True,
+                    'reason': "DKIM signature verification failed -- message may have been "
+                              "altered in transit or the signature is forged"}
+        if spf == 'fail' and dkim != 'pass':
+            # SPF fail alone is a weaker signal on its own -- legitimate
+            # mail forwarding routinely breaks SPF by changing the
+            # envelope sender -- but combined with DKIM not passing
+            # either, there's no remaining authenticated proof this
+            # really came from the claimed domain.
+            return {'suspicious': True,
+                    'reason': "SPF authentication failed and DKIM did not pass -- sender's "
+                              "domain is not properly authenticated"}
+        if spf == 'pass' and dkim == 'pass' and dmarc == 'pass':
+            return {'suspicious': False,
+                    'reason': 'Passed SPF, DKIM, and DMARC authentication'}
+        return None
+
     def check_grammar(self, text):
         """Surface phishing-associated grammar/spelling patterns."""
         issues = []
@@ -420,7 +459,7 @@ class PhishingPredictor:
 
         return flagged
 
-    def _rule_score(self, email_text, processed, sender, attachments=None):
+    def _rule_score(self, email_text, processed, sender, attachments=None, auth_results=None):
         """Rule-based score (0-100) with human-readable reasons. Reuses the
         preprocessor's urgent_keyword_count (config.URGENT_KEYWORDS, which
         already covers urgency and personal-info-request phrasing) rather
@@ -463,6 +502,18 @@ class PhishingPredictor:
                 score += 15
                 reasons.append(f"Suspicious sender: {sender_result['reason']}")
 
+        auth_result = self.check_authentication(auth_results)
+        if auth_result:
+            if auth_result['suspicious']:
+                score += 25
+                reasons.append(auth_result['reason'])
+            else:
+                # A clean SPF+DKIM+DMARC pass is real evidence, but not a
+                # get-out-of-jail card -- a compromised legitimate account
+                # sending real phishing still passes its own domain's
+                # authentication. Offset a modest amount, not zero it out.
+                score = max(0, score - 15)
+
         flagged_attachments = self.check_attachments(attachments)
         if flagged_attachments:
             score += min(35, len(flagged_attachments) * 20)
@@ -471,13 +522,20 @@ class PhishingPredictor:
 
         return min(100, score), reasons, urls, suspicious_links, flagged_attachments
 
-    def predict(self, email_text, sender=None, attachments=None):
+    def predict(self, email_text, sender=None, attachments=None, auth_results=None):
         """
         Predict whether an email is phishing.
 
         `attachments` is an optional list of filenames (str) or dicts with
         a 'filename' key -- pass this when the caller has access to
         attachment metadata (e.g. a real IMAP fetch); omit it otherwise.
+
+        `auth_results` is an optional dict from
+        email_verifier.get_trusted_authentication_results() -- pass this
+        only when the caller fetched the message directly from the mail
+        provider (IMAP/API), never a header parsed off text the caller
+        can't vouch for, since Authentication-Results is otherwise
+        trivially forgeable by whoever composed the message.
 
         Returns a dict with a stable key contract regardless of use_rules:
         is_phishing, label, classification, probability, ml_probability,
@@ -499,7 +557,7 @@ class PhishingPredictor:
 
         if self.use_rules:
             rule_score, reasons, urls, suspicious_links, flagged_attachments = self._rule_score(
-                email_text, processed, sender, attachments)
+                email_text, processed, sender, attachments, auth_results)
             has_links = len(urls) > 0
             # ml_weight defaults to 0.7: the trained model has 98% F1 with a
             # clean probability separation (legit 0-26%, phishing 71-100%),
@@ -543,9 +601,9 @@ class PhishingPredictor:
             'cleaned_text': processed['cleaned_text'],
         }
 
-    def predict_and_save(self, email_text, sender=None, source='user_input', attachments=None):
+    def predict_and_save(self, email_text, sender=None, source='user_input', attachments=None, auth_results=None):
         """Predict and persist the result to the training database."""
-        result = self.predict(email_text, sender=sender, attachments=attachments)
+        result = self.predict(email_text, sender=sender, attachments=attachments, auth_results=auth_results)
         if 'error' in result:
             return result
 

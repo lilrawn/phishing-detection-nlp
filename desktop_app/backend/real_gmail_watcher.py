@@ -20,6 +20,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.predictor import PhishingPredictor
 from src.database import db
+from src.email_verifier import get_trusted_authentication_results
 
 IMAP_HOST = 'imap.gmail.com'
 IMAP_PORT = 993
@@ -130,13 +131,19 @@ class RealGmailWatcher(threading.Thread):
         sender = msg.get('From', '')
         subject = self._decode_header_value(msg.get('Subject', ''))
         body, attachments = self._extract_body_and_attachments(msg)
+        # Real per-message SPF/DKIM/DMARC verdicts, safe to trust here
+        # specifically because this message came straight off the wire via
+        # our own authenticated IMAP fetch -- see the docstring on
+        # get_trusted_authentication_results() for why that matters.
+        auth_results = get_trusted_authentication_results(msg)
 
         if not body.strip():
             return
 
         full_text = f"{subject}\n\n{body}"
         result = self.predictor.predict_and_save(
-            full_text, sender=sender, source='gmail_real', attachments=attachments)
+            full_text, sender=sender, source='gmail_real', attachments=attachments,
+            auth_results=auth_results)
         if 'error' in result:
             return
 

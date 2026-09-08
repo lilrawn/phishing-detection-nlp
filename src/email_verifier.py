@@ -115,6 +115,70 @@ def check_domain_age(domain, timeout=WHOIS_TIMEOUT_SECONDS):
     return result
 
 
+_AUTH_RESULT_RE = re.compile(r'\b(dkim|spf|dmarc)=([a-z]+)', re.IGNORECASE)
+
+
+def parse_authentication_results(header_value):
+    """
+    Parse the verdicts out of a mail server's Authentication-Results
+    header (RFC 8601), e.g.:
+      'mx.google.com; dkim=pass header.i=@paypal.com; spf=pass
+       smtp.mailfrom=bounce@paypal.com; dmarc=pass (p=REJECT)
+       header.from=paypal.com'
+
+    Returns {'spf': 'pass'|'fail'|'softfail'|'neutral'|'none'|'temperror'|
+    'permerror'|None, 'dkim': ..., 'dmarc': ...} -- None for a mechanism
+    the header doesn't mention at all.
+
+    Only meaningful when `header_value` came from get_trusted_authentication_results()
+    below, not read directly off an arbitrary message: the header text
+    itself is just a mail header like any other, trivially forgeable by
+    whoever composed the message.
+    """
+    results = {'spf': None, 'dkim': None, 'dmarc': None}
+    if not header_value:
+        return results
+    for mechanism, verdict in _AUTH_RESULT_RE.findall(header_value):
+        key = mechanism.lower()
+        if results.get(key) is None:
+            results[key] = verdict.lower()
+    return results
+
+
+def get_trusted_authentication_results(msg, expected_authserv_suffix='google.com'):
+    """
+    Extract the Authentication-Results header added by OUR OWN receiving
+    mail server, not one an attacker forged into the message before
+    sending it.
+
+    Per RFC 8601, this header is trustworthy only when read from the
+    instance a receiver you control added -- anyone composing an email can
+    include their own fake 'Authentication-Results: mx.google.com;
+    spf=pass; dkim=pass' line, and email.message.Message.get() has no way
+    to distinguish that from the real one on its own. Two things guard
+    against trusting a forgery: `msg.get()` (not get_all()) returns the
+    first header instance in the raw message, and RFC 5322 headers are
+    prepended by each hop, so mail fetched fresh from a provider has that
+    provider's own addition on top, ahead of anything the sender or an
+    earlier relay wrote (an attacker's forged copy, if they included one,
+    ends up further down the stack and is never inspected here); the
+    authserv-id (text before the first ';') is additionally required to
+    end with `expected_authserv_suffix` (the receiving provider's own
+    domain -- 'google.com' for Gmail) before the result is trusted at all.
+
+    Returns the parse_authentication_results() dict, or None if there's no
+    header, or the authserv-id doesn't match (message fetched via a
+    different provider than expected, or nothing to trust).
+    """
+    header_value = msg.get('Authentication-Results')
+    if not header_value:
+        return None
+    authserv_id = header_value.split(';', 1)[0].strip().lower()
+    if not authserv_id.endswith(expected_authserv_suffix.lower()):
+        return None
+    return parse_authentication_results(header_value)
+
+
 def extract_domain(email_address):
     """Pull the domain out of an email address, or None if it doesn't look like one."""
     match = _DOMAIN_RE.search(email_address or '')
