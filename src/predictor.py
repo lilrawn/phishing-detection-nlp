@@ -30,7 +30,7 @@ from config import (
 )
 from src.preprocessing import TextPreprocessor
 from src.database import db
-from src.email_verifier import check_sender_domain, extract_domain
+from src.email_verifier import check_sender_domain, extract_domain, get_domain_parts, get_registered_domain
 
 # Known legitimate domains for link/sender verification. Deliberately full
 # domains only (no bare substrings like 'team' or 'zoom') -- a substring
@@ -196,6 +196,83 @@ class PhishingPredictor:
     def _extract_urls(text):
         return re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+|www\.[^\s<>"{}|\\^`\[\]]+', text)
 
+    _legitimate_registered_domains_cache = None
+
+    @classmethod
+    def _legitimate_registered_domains(cls):
+        """
+        {registered domain -> brand}, e.g. {'paypal.com': 'PayPal',
+        'microsoftonline.com': 'Microsoft'}. LEGITIMATE_DOMAINS hardcodes a
+        few specific subdomains individually (e.g. 'mail.google.com'), which
+        only recognizes exactly those -- 'secure.paypal.com' or
+        'checkout.amazon.com' would still fall through to "unknown domain"
+        even though they're real subdomains of a listed brand. Comparing by
+        registered domain instead (the same trust boundary browsers use for
+        cookies/origins) covers any subdomain without hardcoding each one.
+        """
+        if cls._legitimate_registered_domains_cache is None:
+            registered = {}
+            for legit_domain, brand in LEGITIMATE_DOMAINS.items():
+                key = get_registered_domain(legit_domain) or legit_domain
+                registered.setdefault(key, brand)
+            cls._legitimate_registered_domains_cache = registered
+        return cls._legitimate_registered_domains_cache
+
+    _brand_name_tokens_cache = None
+
+    @classmethod
+    def _brand_name_tokens(cls):
+        """
+        {core brand token -> display name}, e.g. {'paypal': 'PayPal',
+        'microsoftonline': 'Microsoft'}. Derived from LEGITIMATE_DOMAINS via
+        tldextract rather than a naive split('.')[0] -- that would wrongly
+        turn 'login.microsoftonline.com' into the token 'login'. Cached
+        since LEGITIMATE_DOMAINS is static for the process lifetime.
+        """
+        if cls._brand_name_tokens_cache is None:
+            tokens = {}
+            for legit_domain, brand in LEGITIMATE_DOMAINS.items():
+                parts = get_domain_parts(legit_domain)
+                core = (parts.domain if parts else legit_domain.split('.')[0]).lower()
+                # Skip short cores (e.g. a hypothetical 3-letter brand) --
+                # too likely to false-positive as a substring of an
+                # unrelated word.
+                if len(core) >= 4:
+                    tokens.setdefault(core, brand)
+            cls._brand_name_tokens_cache = tokens
+        return cls._brand_name_tokens_cache
+
+    def _check_brand_impersonation(self, hostname):
+        """
+        Catch a pattern typosquat-distance and exact-match both miss: a
+        known brand name embedded as a fake subdomain of an unrelated
+        registered domain, e.g. 'paypal.com.evil-verify.net' or
+        'login.microsoftonline.com.attacker.ru'. Edit distance from
+        'paypal.com' to the full hostname is large in these cases (it's not
+        a *misspelling* of the brand, it's the real brand name plus a
+        different domain tacked on), so they'd otherwise fall through to a
+        generic "unknown domain" -- or worse, in check_sender, potentially
+        pass a live-MX check on infrastructure the attacker legitimately
+        controls.
+
+        Returns {'brand': str, 'reason': str} or None.
+        """
+        parts = get_domain_parts(hostname)
+        if parts is None:
+            return None
+
+        registered = f"{parts.domain}.{parts.suffix}" if parts.domain and parts.suffix else None
+        if registered and registered in LEGITIMATE_DOMAINS:
+            return None  # it's the real domain (or a subdomain of it)
+
+        haystack = f"{parts.subdomain}.{parts.domain}".lower()
+        for core, brand in self._brand_name_tokens().items():
+            if re.search(rf'(?<![a-z0-9]){re.escape(core)}(?![a-z0-9])', haystack):
+                return {'brand': brand,
+                        'reason': f"'{brand}' name embedded in an unrelated domain "
+                                  f"(registered domain is '{registered or hostname}')"}
+        return None
+
     def check_link(self, url):
         """Classify a URL against the legitimate-domain database."""
         parsed = urlparse(url if url.startswith('http') else f'http://{url}')
@@ -205,11 +282,22 @@ class PhishingPredictor:
             return {'suspicious': False, 'brand': LEGITIMATE_DOMAINS[domain],
                     'reason': f"Matches legitimate {LEGITIMATE_DOMAINS[domain]} domain"}
 
+        registered = get_registered_domain(domain)
+        legit_brand = self._legitimate_registered_domains().get(registered)
+        if legit_brand:
+            return {'suspicious': False, 'brand': legit_brand,
+                    'reason': f"Subdomain of legitimate {legit_brand} domain ({registered})"}
+
         for legit_domain, brand in LEGITIMATE_DOMAINS.items():
             distance = self._string_distance(domain, legit_domain)
             if 0 < distance <= 2:
                 return {'suspicious': True, 'brand': brand,
                         'reason': f"Typosquatting: '{domain}' is {distance} character(s) from '{legit_domain}'"}
+
+        impersonation = self._check_brand_impersonation(domain)
+        if impersonation:
+            return {'suspicious': True, 'brand': impersonation['brand'],
+                    'reason': f"Brand impersonation: {impersonation['reason']}"}
 
         return {'suspicious': True, 'brand': None, 'reason': f"Unknown domain: '{domain}'"}
 
@@ -228,15 +316,31 @@ class PhishingPredictor:
         if domain in LEGITIMATE_DOMAINS:
             return {'suspicious': False, 'reason': f"Legitimate {LEGITIMATE_DOMAINS[domain]} sender domain"}
 
+        registered = get_registered_domain(domain)
+        legit_brand = self._legitimate_registered_domains().get(registered)
+        if legit_brand:
+            return {'suspicious': False,
+                    'reason': f"Subdomain of legitimate {legit_brand} domain ({registered})"}
+
         for legit_domain, brand in LEGITIMATE_DOMAINS.items():
             distance = self._string_distance(domain, legit_domain)
             if 0 < distance <= 2:
                 return {'suspicious': True,
                         'reason': f"Sender domain '{domain}' is {distance} character(s) from '{legit_domain}'"}
 
-        # Not a known brand or an obvious typosquat of one -- verify the
-        # domain can actually receive mail (live DNS, or the offline
-        # known-phishing-domain list when there's no connectivity).
+        # A brand name embedded as a fake subdomain (e.g.
+        # 'paypal.com.evil-verify.net') is disqualifying on its own --
+        # check before check_sender_domain's live-MX check, since an
+        # attacker who registered that domain controls real mail servers
+        # for it and would otherwise pass a DNS-only check.
+        impersonation = self._check_brand_impersonation(domain)
+        if impersonation:
+            return {'suspicious': True,
+                    'reason': f"Brand impersonation: {impersonation['reason']}"}
+
+        # Not a known brand or an obvious typosquat/impersonation of one --
+        # verify the domain can actually receive mail (live DNS, or the
+        # offline known-phishing-domain list when there's no connectivity).
         suspicious, reason, _source = check_sender_domain(domain)
         return {'suspicious': suspicious, 'reason': reason}
 
