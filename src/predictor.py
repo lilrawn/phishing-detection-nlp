@@ -31,6 +31,7 @@ from config import (
 from src.preprocessing import TextPreprocessor
 from src.database import db
 from src.email_verifier import check_sender_domain, extract_domain, get_domain_parts, get_registered_domain
+from src import url_reputation
 
 # Known legitimate domains for link/sender verification. Deliberately full
 # domains only (no bare substrings like 'team' or 'zoom') -- a substring
@@ -273,8 +274,28 @@ class PhishingPredictor:
                                   f"(registered domain is '{registered or hostname}')"}
         return None
 
-    def check_link(self, url):
-        """Classify a URL against the legitimate-domain database."""
+    def check_link(self, url, _expanded_from=None):
+        """
+        Classify a URL against the legitimate-domain database, redirect
+        destination (for known shorteners), and structural red flags.
+        `_expanded_from` is set internally when recursing into a
+        shortener's resolved destination -- callers shouldn't pass it.
+        """
+        if _expanded_from is None and url_reputation.is_shortened_url(url):
+            expanded, error = url_reputation.expand_shortened_url(url)
+            if error is None and expanded != url:
+                result = self.check_link(expanded, _expanded_from=url)
+                result['reason'] = f"Shortened link resolves to {expanded} -- {result['reason']}"
+                return result
+            # Couldn't expand (timeout, 404, private-address redirect) --
+            # fall through and judge the shortener URL itself below; being
+            # unresolvable isn't proof of anything on its own.
+
+        structure_issues = url_reputation.check_url_structure(url)
+        high_severity = [i['reason'] for i in structure_issues if i['severity'] == 'high']
+        if high_severity:
+            return {'suspicious': True, 'brand': None, 'reason': '; '.join(high_severity)}
+
         parsed = urlparse(url if url.startswith('http') else f'http://{url}')
         domain = re.sub(r'^www\.', '', parsed.netloc or parsed.path.split('/')[0])
 
@@ -299,7 +320,11 @@ class PhishingPredictor:
             return {'suspicious': True, 'brand': impersonation['brand'],
                     'reason': f"Brand impersonation: {impersonation['reason']}"}
 
-        return {'suspicious': True, 'brand': None, 'reason': f"Unknown domain: '{domain}'"}
+        reason = f"Unknown domain: '{domain}'"
+        low_severity = [i['reason'] for i in structure_issues if i['severity'] == 'low']
+        if low_severity:
+            reason += f" ({'; '.join(low_severity)})"
+        return {'suspicious': True, 'brand': None, 'reason': reason}
 
     def check_sender(self, sender):
         """Verify a sender email's domain against the legitimate-domain database."""
