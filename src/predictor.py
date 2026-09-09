@@ -168,9 +168,22 @@ class PhishingPredictor:
             numeric = self.scaler.transform(numeric)
         return hstack([tfidf, csr_matrix(numeric)])
 
-    def _adaptive_threshold(self, processed):
+    def _adaptive_threshold(self, processed, sender_trusted=False):
         """Lower the decision threshold slightly as more phishing indicators
-        stack up, within a [0.5, 0.8] band around base_threshold."""
+        stack up, within a [0.5, 0.8] band around base_threshold.
+
+        Skipped entirely when sender_trusted is True (a confirmed-legitimate
+        sender per _rule_score -- an exact brand match, a WHOIS-established
+        domain, or a clean SPF/DKIM/DMARC pass). Urgent language plus a
+        link is the ordinary shape of a real password-reset or 2FA email,
+        not evidence specific to phishing -- without this, a message from
+        an already-vouched-for sender gets a *lower* bar to clear at
+        exactly the point it least deserves one, right where the base ML
+        model tends to be most confidently (and wrongly) sure it's
+        phishing, since genuine security mail and phishing share that
+        template almost word for word."""
+        if sender_trusted:
+            return self.base_threshold
         indicators = 0
         if processed.get('url_count', 0) > 0:
             indicators += 1
@@ -319,6 +332,21 @@ class PhishingPredictor:
         if impersonation:
             return {'suspicious': True, 'brand': impersonation['brand'],
                     'reason': f"Brand impersonation: {impersonation['reason']}"}
+
+        # Not a hardcoded brand, an obvious typosquat, or an impersonation
+        # pattern -- before giving up and calling it "unknown", check
+        # whether it's a real, established domain via live DNS+WHOIS (the
+        # same check check_sender() uses). LEGITIMATE_DOMAINS only covers a
+        # handful of consumer brands; without this, a password-reset or
+        # billing link from any other real company gets penalized just for
+        # being unrecognized -- caught two of exactly this while testing:
+        # id.atlassian.com and cloud.digitalocean.com links both flagged
+        # "unknown domain" despite both companies being decades-old.
+        _domain_suspicious, domain_reason, domain_source = check_sender_domain(domain)
+        if domain_source == 'dns+whois-established':
+            return {'suspicious': False, 'brand': None, 'reason': domain_reason}
+        if domain_source == 'dns+whois':  # confirmed newly-registered
+            return {'suspicious': True, 'brand': None, 'reason': domain_reason}
 
         reason = f"Unknown domain: '{domain}'"
         low_severity = [i['reason'] for i in structure_issues if i['severity'] == 'low']
@@ -522,22 +550,37 @@ class PhishingPredictor:
                 shown = ', '.join(f"'{p}'" for p in phrases[:3])
                 reasons.append(f"{label.capitalize()} language detected: {shown}")
 
+        # Tracks whether *something* here independently vouches for this
+        # message's origin (not just "nothing looked wrong") -- fed into
+        # _adaptive_threshold so a confirmed-legitimate sender doesn't get
+        # a *lower* bar to clear just for using urgent language plus a
+        # link, which is the normal shape of a real password-reset or 2FA
+        # email, not evidence specific to phishing.
+        sender_trusted = False
+
         if sender:
             sender_result = self.check_sender(sender)
             if sender_result['suspicious']:
                 score += 15
                 reasons.append(f"Suspicious sender: {sender_result['reason']}")
-            elif sender_result.get('established'):
-                # LEGITIMATE_DOMAINS only covers a handful of hardcoded
-                # consumer brands -- a WHOIS-confirmed 2+ year old domain
-                # with valid mail servers and no phishing-sample history is
-                # real evidence of legitimacy for everything outside that
-                # list, not just "nothing looked wrong". Without this, the
-                # rule score gives such senders zero credit, leaving
-                # nothing to counterbalance an overconfident ML score on
-                # short, credential/code-themed text -- the exact template
-                # real 2FA emails and phishing both use.
-                score = max(0, score - 15)
+            else:
+                # sender_result omits 'established' entirely for the
+                # strong-match cases (an exact TRUSTED_SENDERS/
+                # LEGITIMATE_DOMAINS hit, or a subdomain of one) -- those
+                # are even more confidently legitimate than the WHOIS path,
+                # hence the default of True rather than requiring the key.
+                sender_trusted = sender_result.get('established', True)
+                if sender_result.get('established'):
+                    # LEGITIMATE_DOMAINS only covers a handful of hardcoded
+                    # consumer brands -- a WHOIS-confirmed 2+ year old domain
+                    # with valid mail servers and no phishing-sample history is
+                    # real evidence of legitimacy for everything outside that
+                    # list, not just "nothing looked wrong". Without this, the
+                    # rule score gives such senders zero credit, leaving
+                    # nothing to counterbalance an overconfident ML score on
+                    # short, credential/code-themed text -- the exact template
+                    # real 2FA emails and phishing both use.
+                    score = max(0, score - 15)
 
         auth_result = self.check_authentication(auth_results)
         if auth_result:
@@ -550,6 +593,7 @@ class PhishingPredictor:
                 # sending real phishing still passes its own domain's
                 # authentication. Offset a modest amount, not zero it out.
                 score = max(0, score - 15)
+                sender_trusted = True
 
         flagged_attachments = self.check_attachments(attachments)
         if flagged_attachments:
@@ -557,7 +601,7 @@ class PhishingPredictor:
             for att in flagged_attachments[:2]:
                 reasons.append(att['reason'])
 
-        return min(100, score), reasons, urls, suspicious_links, flagged_attachments
+        return min(100, score), reasons, urls, suspicious_links, flagged_attachments, sender_trusted
 
     def predict(self, email_text, sender=None, attachments=None, auth_results=None):
         """
@@ -585,15 +629,15 @@ class PhishingPredictor:
         processed = self.preprocessor.preprocess_pipeline(email_text, extract_features=True)
         features = self._build_features(processed)
         ml_probability = self.model.predict_proba(features)[0][1]
-        threshold = self._adaptive_threshold(processed)
 
         reasons = []
         suspicious_links = []
         flagged_attachments = []
         has_links = processed.get('url_count', 0) > 0
+        sender_trusted = False
 
         if self.use_rules:
-            rule_score, reasons, urls, suspicious_links, flagged_attachments = self._rule_score(
+            rule_score, reasons, urls, suspicious_links, flagged_attachments, sender_trusted = self._rule_score(
                 email_text, processed, sender, attachments, auth_results)
             has_links = len(urls) > 0
             # ml_weight defaults to 0.7: the trained model has 98% F1 with a
@@ -603,6 +647,8 @@ class PhishingPredictor:
             probability = min(1.0, max(0.0, self.ml_weight * ml_probability + (1 - self.ml_weight) * (rule_score / 100)))
         else:
             probability = ml_probability
+
+        threshold = self._adaptive_threshold(processed, sender_trusted)
 
         # A disguised-executable attachment (double extension, RTLO trick)
         # is close to a smoking gun regardless of how innocuous the body
