@@ -32,6 +32,12 @@ from src.preprocessing import TextPreprocessor
 from src.database import db
 from src.email_verifier import check_sender_domain, extract_domain, get_domain_parts, get_registered_domain
 from src import url_reputation
+from src.ai_domain_screening import screen_address
+
+# AI verdicts below this confidence are treated as no signal either way --
+# same reasoning as check_authentication's partial-results handling: a
+# weak/uncertain LLM guess isn't worth acting on in either direction.
+AI_SCREENING_CONFIDENCE_THRESHOLD = 70
 
 # Known legitimate domains for link/sender verification. Deliberately full
 # domains only (no bare substrings like 'team' or 'zoom') -- a substring
@@ -287,6 +293,24 @@ class PhishingPredictor:
                                   f"(registered domain is '{registered or hostname}')"}
         return None
 
+    @staticmethod
+    def _ai_screen(domain):
+        """
+        Ask Gemini to judge a domain's structure/naming (see
+        src/ai_domain_screening.py) and normalize the result to
+        {'suspicious': bool, 'reason': str} or None. None covers every
+        "nothing to act on" case uniformly for callers: no API key
+        configured, the request failed/timed out, or the verdict came
+        back below AI_SCREENING_CONFIDENCE_THRESHOLD -- deliberately not
+        distinguished further, since a caller falling back to its
+        existing rule-based verdict is the correct response in all three.
+        """
+        result = screen_address(domain)
+        if not result.get('available') or result.get('confidence', 0) < AI_SCREENING_CONFIDENCE_THRESHOLD:
+            return None
+        reason = result.get('reason') or ('Suspicious' if result['suspicious'] else 'Looks legitimate')
+        return {'suspicious': result['suspicious'], 'reason': f"AI screening: {reason}"}
+
     def check_link(self, url, _expanded_from=None):
         """
         Classify a URL against the legitimate-domain database, redirect
@@ -348,6 +372,13 @@ class PhishingPredictor:
         if domain_source == 'dns+whois':  # confirmed newly-registered
             return {'suspicious': True, 'brand': None, 'reason': domain_reason}
 
+        # Still nothing conclusive -- last resort before defaulting to
+        # "unknown" is asking an LLM to judge the domain's structure/
+        # naming (unavailable unless GEMINI_API_KEY is set; a no-op then).
+        ai_result = self._ai_screen(domain)
+        if ai_result:
+            return {'suspicious': ai_result['suspicious'], 'brand': None, 'reason': ai_result['reason']}
+
         reason = f"Unknown domain: '{domain}'"
         low_severity = [i['reason'] for i in structure_issues if i['severity'] == 'low']
         if low_severity:
@@ -395,6 +426,19 @@ class PhishingPredictor:
         # verify the domain can actually receive mail (live DNS, or the
         # offline known-phishing-domain list when there's no connectivity).
         suspicious, reason, source = check_sender_domain(domain)
+
+        # source == 'dns' is the genuinely ambiguous middle case: valid
+        # mail servers, not on the phishing-sample blocklist, but WHOIS
+        # couldn't confirm it as either newly-registered or established
+        # (unavailable, or a mid-range age). This is exactly where an LLM
+        # judging the domain's naming adds the most incremental value over
+        # the other, more confident branches above.
+        if source == 'dns':
+            ai_result = self._ai_screen(domain)
+            if ai_result:
+                return {'suspicious': ai_result['suspicious'], 'reason': ai_result['reason'],
+                        'established': not ai_result['suspicious']}
+
         return {'suspicious': suspicious, 'reason': reason,
                 'established': source == 'dns+whois-established'}
 
