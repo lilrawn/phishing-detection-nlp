@@ -251,19 +251,33 @@ def check_sender_domain(domain):
     if dns_result == 'no_mail_servers':
         return True, f"Domain '{domain}' cannot receive mail (no MX/A record) -- likely spoofed", 'dns'
     if dns_result == 'valid':
+        # Check WHOIS-established status *before* the phishing-sample
+        # blocklist, not after: KNOWN_PHISHING_DOMAINS was built from
+        # sender-header domains seen in a phishing corpus (see
+        # scripts/extract_known_phishing_domains.py), and a spoofed From
+        # header is exactly how phishing works -- attackers overwhelmingly
+        # impersonate real, well-known, long-established brands rather
+        # than owning them. That contaminated the list with chase.com,
+        # paypal.com, wellsfargo.com, capitalone.com, fedex.com, and
+        # dozens of other real institutions the corpus's phishing emails
+        # merely *claimed* to be from. A domain WHOIS-confirms as 2+ years
+        # registered with valid mail servers is real, hard-to-fake evidence
+        # about who actually owns it; a decades-old bank being real is far
+        # more likely than it being attacker-controlled infrastructure, so
+        # that evidence should win over a spoofable header seen once or
+        # twice in training data.
+        age_days, age_source = check_domain_age(get_registered_domain(domain) or domain)
+        if age_source == 'whois' and age_days is not None and age_days >= ESTABLISHED_DOMAIN_AGE_DAYS_THRESHOLD:
+            return (False,
+                    f"Domain '{domain}' has valid mail servers and has been registered for "
+                    f"{age_days // 365}+ years", 'dns+whois-established')
         if domain in KNOWN_PHISHING_DOMAINS:
             return True, f"Domain '{domain}' has appeared in known phishing samples", 'dns'
-        age_days, age_source = check_domain_age(get_registered_domain(domain) or domain)
-        if age_source == 'whois' and age_days is not None:
-            if age_days < NEW_DOMAIN_AGE_DAYS_THRESHOLD:
-                return (True,
-                        f"Domain '{domain}' has valid mail servers but was registered only "
-                        f"{age_days} day(s) ago -- newly-registered domains are common "
-                        "phishing/BEC infrastructure", 'dns+whois')
-            if age_days >= ESTABLISHED_DOMAIN_AGE_DAYS_THRESHOLD:
-                return (False,
-                        f"Domain '{domain}' has valid mail servers and has been registered for "
-                        f"{age_days // 365}+ years", 'dns+whois-established')
+        if age_source == 'whois' and age_days is not None and age_days < NEW_DOMAIN_AGE_DAYS_THRESHOLD:
+            return (True,
+                    f"Domain '{domain}' has valid mail servers but was registered only "
+                    f"{age_days} day(s) ago -- newly-registered domains are common "
+                    "phishing/BEC infrastructure", 'dns+whois')
         return False, f"Domain '{domain}' has valid mail servers", 'dns'
 
     # dns_result == 'unreachable': no internet or DNS failure, use the
