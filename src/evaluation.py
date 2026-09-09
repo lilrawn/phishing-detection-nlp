@@ -3,6 +3,14 @@ Module for evaluating and visualizing model performance
 """
 import pandas as pd
 import numpy as np
+import matplotlib
+# Every plot method here calls plt.show() after saving -- fine
+# interactively, but this module now runs unattended from
+# main.py's training pipeline, where the default GUI backend would open a
+# window and block indefinitely waiting for someone to close it. Agg is
+# save-only and makes plt.show() a harmless no-op; must be set before
+# pyplot's first import.
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix, roc_curve, auc, precision_recall_curve

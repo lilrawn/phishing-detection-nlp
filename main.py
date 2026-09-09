@@ -260,11 +260,14 @@ def train_pipeline():
     # Save comparison
     comparison_df.to_csv(os.path.join(RESULTS_DIR, 'model_comparison.csv'), index=False)
     
-    # Create confusion matrices
+    # Create confusion matrices -- saved to results/confusion_matrices/,
+    # regenerated fresh on every run so they never go stale relative to
+    # whatever model actually gets shipped (unlike the hand-maintained,
+    # hardcoded confusion_matrix.png this replaced, which said "Logistic
+    # Regression" long after SVM became the real best model).
     for name, res in results.items():
-        from sklearn.metrics import confusion_matrix
-        cm = confusion_matrix(y_test, res['predictions'])
-        
+        cm = evaluator.plot_confusion_matrix(y_test, res['predictions'], name)
+
         # Simple text output
         print(f"\n{name} Confusion Matrix:")
         print(cm)
