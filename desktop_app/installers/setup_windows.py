@@ -22,7 +22,8 @@ INNO_SETUP_SCRIPT = '''; Inno Setup script for Phishing Detector.
 
 #define MyAppName "Phishing Detector"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Liron Nyambu"
+#define MyAppPublisher "Liron Nyambu (github.com/lilrawn)"
+#define MyAppURL "https://github.com/lilrawn/phishing-detection-nlp"
 #define MyAppExeName "PhishingDetector.exe"
 
 [Setup]
@@ -30,6 +31,9 @@ AppId={{B6C9E4F0-6C1A-4E9C-9F1A-PHISHDETECT01}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppURL}
+AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\\{#MyAppName}
 DefaultGroupName={#MyAppName}
 OutputBaseFilename=PhishingDetector-Setup

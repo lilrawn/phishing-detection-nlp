@@ -62,7 +62,7 @@ class NotificationManager:
             self.tray_icon = self.pystray.Icon(
                 "phishing_detector",
                 image,
-                "Phishing Detector",
+                "Phishing Detector — by lilrawn",
                 menu
             )
             

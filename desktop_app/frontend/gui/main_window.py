@@ -3,6 +3,7 @@ Main dashboard window for phishing detector
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
+import webbrowser
 import threading
 import time
 from datetime import datetime
@@ -185,7 +186,15 @@ class PhishingDashboard:
         
         # Control buttons
         self.setup_controls(main_frame)
-    
+
+        # Footer credit -- always visible without needing to open a menu,
+        # unlike the About dialog (Help -> About), which has the fuller
+        # version with a clickable link.
+        footer = ttk.Label(main_frame, text="Phishing Detector — created by Liron Nyambu (github.com/lilrawn)",
+                            font=('Helvetica', 8), cursor='hand2')
+        footer.grid(row=7, column=0, pady=(0, 2))
+        footer.bind('<Button-1>', lambda e: webbrowser.open('https://github.com/lilrawn/phishing-detection-nlp'))
+
     def setup_menu(self):
         """Setup menu bar"""
         menubar = tk.Menu(self.root)
@@ -1320,20 +1329,57 @@ class PhishingDashboard:
     
     def show_about(self):
         self.add_log("ℹ️ About dialog opened", 'info')
-        messagebox.showinfo(
-            "About Phishing Detector",
-            "🛡️ Phishing Email Detector\n"
-            "Version 1.0.0\n\n"
-            "AI-powered phishing detection using NLP\n"
-            "Trained on 56,649 emails with 98% accuracy\n\n"
-            "Features:\n"
-            "• Real-time Gmail monitoring\n"
-            "• Browser extension integration\n"
-            "• Sender reputation tracking\n"
-            "• User feedback system\n"
-            "• Cross-platform support\n\n"
-            "© 2025 Liron Nyambu"
-        )
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("About Phishing Detector")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        frame = ttk.Frame(dialog, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="🛡️ Phishing Email Detector",
+                  font=('Helvetica', 16, 'bold')).pack(pady=(0, 5))
+        ttk.Label(frame, text="Version 1.0.0").pack(pady=(0, 15))
+
+        ttk.Label(frame,
+                  text="AI-powered phishing detection using NLP\n"
+                       "Trained on 57,446 emails, 98.6% accuracy",
+                  justify=tk.CENTER).pack(pady=(0, 15))
+
+        ttk.Label(frame,
+                  text="• Real-time Gmail monitoring\n"
+                       "• Browser extension integration\n"
+                       "• Sender reputation tracking\n"
+                       "• User feedback system\n"
+                       "• Cross-platform support",
+                  justify=tk.LEFT).pack(pady=(0, 15))
+
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 15))
+
+        ttk.Label(frame, text="Created by Liron Nyambu",
+                  font=('Helvetica', 10, 'bold')).pack()
+
+        github_link = ttk.Label(frame, text="github.com/lilrawn",
+                                 foreground=self.COLORS['info'], cursor='hand2')
+        github_link.pack(pady=(2, 0))
+        github_link.bind('<Button-1>', lambda e: webbrowser.open('https://github.com/lilrawn'))
+
+        repo_link = ttk.Label(frame, text="View source on GitHub",
+                               foreground=self.COLORS['info'], cursor='hand2')
+        repo_link.pack(pady=(2, 10))
+        repo_link.bind('<Button-1>', lambda e: webbrowser.open(
+            'https://github.com/lilrawn/phishing-detection-nlp'))
+
+        ttk.Label(frame, text="© 2026 Liron Nyambu — MIT License").pack()
+
+        ttk.Button(frame, text="Close", command=dialog.destroy).pack(pady=(15, 0))
+
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
     
     def export_logs(self):
         from tkinter import filedialog

@@ -3,6 +3,8 @@
   "name": "Phishing Detector",
   "version": "1.0.0",
   "description": "Real-time phishing detection for Gmail",
+  "author": "Liron Nyambu (github.com/lilrawn)",
+  "homepage_url": "https://github.com/lilrawn/phishing-detection-nlp",
   "permissions": [
     "tabs",
     "scripting",

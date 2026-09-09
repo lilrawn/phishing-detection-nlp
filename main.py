@@ -25,6 +25,7 @@ def setup_environment():
     print("\n" + "="*70)
     print("AI-POWERED PHISHING EMAIL DETECTION SYSTEM")
     print("Using Natural Language Processing (NLP)")
+    print("Created by Liron Nyambu (github.com/lilrawn)")
     print("="*70)
     
     print(f"\nSystem Configuration:")

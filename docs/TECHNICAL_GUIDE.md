@@ -2,7 +2,7 @@
 
 **Project:** Phishing Detector — an AI-powered phishing email detection system, shipped both as a research/training pipeline (train and evaluate ML models on real phishing/legitimate email corpora) and as a cross-platform desktop app (real-time Gmail monitoring with browser integration).
 
-**Created by:** Liron Nyambu
+**Created by:** [Liron Nyambu](https://github.com/lilrawn) — GitHub: [@lilrawn](https://github.com/lilrawn)
 
 This guide is for anyone extending the code, retraining the model, or just trying to understand how it all fits together. If you only want to *install and use* the app, see the main [README.md](../README.md) instead.
 
@@ -284,4 +284,6 @@ Building a distributable package: `python build.py` (auto-detects the current OS
 
 ## Credits
 
-Built by **Liron Nyambu**.
+Built by **Liron Nyambu** — GitHub: [@lilrawn](https://github.com/lilrawn) — [github.com/lilrawn/phishing-detection-nlp](https://github.com/lilrawn/phishing-detection-nlp)
+
+Licensed under the [MIT License](../LICENSE).

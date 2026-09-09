@@ -766,6 +766,7 @@ def run_interactive(predictor=None):
     print("\n" + "=" * 60)
     print("🤖 PHISHING EMAIL DETECTOR")
     print("   Natural Language Processing + Machine Learning")
+    print("   Created by Liron Nyambu (github.com/lilrawn)")
     print("=" * 60)
 
     if predictor is None:

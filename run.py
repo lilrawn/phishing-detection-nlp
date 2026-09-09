@@ -29,6 +29,7 @@ def predict(use_rules=True):
 def show_menu():
     print("\n" + "=" * 60)
     print("🔍 PHISHING EMAIL DETECTION SYSTEM")
+    print("   Created by Liron Nyambu (github.com/lilrawn)")
     print("=" * 60)
     print("\nOptions:")
     print("1. Train new model")

@@ -37,7 +37,7 @@ cat > "$DESKTOP_DIR/phishingdetector.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Phishing Detector
-Comment=Real-time phishing email detection
+Comment=Real-time phishing email detection — by Liron Nyambu (github.com/lilrawn)
 Exec=$INSTALL_DIR/PhishingDetector
 Terminal=false
 Categories=Utility;Security;

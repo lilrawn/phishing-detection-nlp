@@ -1,6 +1,10 @@
 # Phishing Detector
 
-**Created by Liron Nyambu**
+[![Created by lilrawn](https://img.shields.io/badge/created%20by-lilrawn-4A6FA0)](https://github.com/lilrawn)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4A8C5E)](LICENSE)
+[![GitHub](https://img.shields.io/badge/github-lilrawn%2Fphishing--detection--nlp-black?logo=github)](https://github.com/lilrawn/phishing-detection-nlp)
+
+**Created by [Liron Nyambu](https://github.com/lilrawn) — GitHub: [@lilrawn](https://github.com/lilrawn)**
 
 An AI-powered desktop app that watches your inbox in the background and flags phishing emails in real time — with a plain-English reason for every flag and a confidence score, not just a red/green verdict. It combines a trained machine-learning model with rule-based checks (suspicious links, lookalike domains, sender verification) and works whether or not you're online.
 
@@ -92,3 +96,11 @@ By default the app runs with its dashboard open. To have it start automatically 
 ## For developers
 
 This README is written for people installing the packaged app. If you're working on the source code, training the model, or want a full technical breakdown of the architecture — every module, how the ML pipeline works, and how to run everything from source — see [docs/TECHNICAL_GUIDE.md](docs/TECHNICAL_GUIDE.md).
+
+---
+
+## Author & License
+
+Created by **Liron Nyambu** — GitHub: [@lilrawn](https://github.com/lilrawn)
+
+Licensed under the [MIT License](LICENSE) — free to use, modify, and redistribute, provided the copyright notice in [LICENSE](LICENSE) is kept intact in any copy.

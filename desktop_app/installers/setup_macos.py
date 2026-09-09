@@ -90,6 +90,10 @@ app = BUNDLE(
         'CFBundleShortVersionString': '1.0.0',
         'CFBundleVersion': '1',
         'NSHighResolutionCapable': True,
+        # Shows in Finder's Get Info panel, and is what macOS uses to
+        # populate the native "About PhishingDetector" panel for a
+        # bundled .app -- the standard, OS-level place for this.
+        'NSHumanReadableCopyright': 'Copyright (c) 2026 Liron Nyambu (github.com/lilrawn). MIT License.',
     }}
 )
 '''
