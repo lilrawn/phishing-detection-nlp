@@ -4,11 +4,19 @@ Settings dialog for phishing detector
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import os
+import webbrowser
 from pathlib import Path
 
 class SettingsDialog:
     """Settings dialog for configuring the application"""
-    
+
+    # Shown in the Gemini API key field when a key is already saved, in
+    # place of the real (decrypted) value -- never redisplay a stored
+    # secret in a plaintext-visible-on-focus field. save_settings() only
+    # touches the stored key if the field no longer matches this exact
+    # sentinel, so leaving it untouched keeps the existing key as-is.
+    GEMINI_KEY_PLACEHOLDER = '•' * 20
+
     def __init__(self, parent, permission_manager):
         self.parent = parent
         self.permission_manager = permission_manager
@@ -188,7 +196,39 @@ class SettingsDialog:
         self.weight_label.pack(pady=5)
         
         weight_scale.configure(command=self.update_weight_label)
-        
+
+        # AI analysis (Gemini) -- powers both the full-email AI cross-check
+        # (desktop_app/backend/gemini_analyzer.py) and the AI-assisted
+        # address/domain screening in src/ai_domain_screening.py. Both are
+        # fully optional and no-op without a key, so this whole section is
+        # opt-in, not required for the app to work.
+        ai_frame = ttk.LabelFrame(tab, text="AI Analysis (Gemini)", padding=10)
+        ai_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        ttk.Label(ai_frame,
+                  text="Gemini API key (optional -- enables AI-assisted email and "
+                       "domain analysis):").pack(anchor=tk.W, pady=(0, 5))
+
+        key_row = ttk.Frame(ai_frame)
+        key_row.pack(fill=tk.X, pady=5)
+
+        has_saved_key = bool(self.permission_manager.permissions.get('gemini_api_key'))
+        self.gemini_key_var = tk.StringVar(
+            value=self.GEMINI_KEY_PLACEHOLDER if has_saved_key else '')
+        self.gemini_key_entry = ttk.Entry(key_row, textvariable=self.gemini_key_var, show='•')
+        self.gemini_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        ttk.Button(key_row, text="Clear", width=8,
+                   command=self.clear_gemini_key).pack(side=tk.LEFT, padx=(5, 0))
+
+        link = ttk.Label(ai_frame, text="Get a free key at aistudio.google.com/apikey",
+                          foreground='#4A6FA0', cursor='hand2')
+        link.pack(anchor=tk.W, pady=(5, 0))
+        link.bind('<Button-1>', lambda e: webbrowser.open('https://aistudio.google.com/apikey'))
+
+        ttk.Label(ai_frame, text="Restart the app after changing this for it to take effect.",
+                  font=('Helvetica', 8)).pack(anchor=tk.W, pady=(5, 0))
+
         # Logging
         log_frame = ttk.LabelFrame(tab, text="Logging", padding=10)
         log_frame.pack(fill=tk.X, padx=10, pady=10)
@@ -214,6 +254,12 @@ class SettingsDialog:
             # Remove from startup (implementation depends on OS)
             pass
     
+    def clear_gemini_key(self):
+        """Empty the Gemini API key field -- save_settings() removes the
+        stored key when it sees an empty field (distinct from leaving the
+        placeholder untouched, which keeps the existing key)."""
+        self.gemini_key_var.set('')
+
     def browse_path(self):
         """Browse for data storage path"""
         path = filedialog.askdirectory(title="Select Data Storage Location")
@@ -250,8 +296,23 @@ class SettingsDialog:
             'alert_threshold': self.threshold_var.get(),
             'ml_weight': self.ml_weight_var.get() / 100
         })
-        
+
         self.permission_manager.permissions['background_running'] = self.startup_var.get()
+
+        # Gemini API key: only touch the stored value if the field
+        # actually changed -- the placeholder means "leave the existing
+        # key alone" (it's never the real decrypted value), an empty
+        # field means "remove it", anything else is a new key to encrypt
+        # and store the same way Gmail app passwords already are.
+        typed_key = self.gemini_key_var.get().strip()
+        if typed_key == self.GEMINI_KEY_PLACEHOLDER:
+            pass
+        elif typed_key:
+            self.permission_manager.permissions['gemini_api_key'] = \
+                self.permission_manager.encrypt_password(typed_key)
+        else:
+            self.permission_manager.permissions['gemini_api_key'] = None
+
         self.permission_manager.save_permissions()
         
         messagebox.showinfo("Success", "Settings saved successfully!")

@@ -13,6 +13,24 @@ from pathlib import Path
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
 
+# Load a Settings-configured Gemini API key into the environment before
+# anything below (starting with browser_integration next, which pulls in
+# predictor.py -> ai_domain_screening.py) gets a chance to import a module
+# that reads GEMINI_API_KEY at import time -- gemini_analyzer.py's
+# singleton and ai_domain_screening.py's AI_SCREENING_AVAILABLE flag are
+# both fixed once at import, so this has to run first. An explicit
+# environment variable, if one is already set, always wins over the saved
+# (encrypted) key from Settings.
+if not os.environ.get('GEMINI_API_KEY'):
+    try:
+        from desktop_app.backend.permission_manager import PermissionManager
+        _pm = PermissionManager()
+        _encrypted_key = _pm.permissions.get('gemini_api_key')
+        if _encrypted_key:
+            os.environ['GEMINI_API_KEY'] = _pm.decrypt_password(_encrypted_key)
+    except Exception as e:
+        print(f"⚠️ Could not load saved Gemini API key: {e}")
+
 # Importing the predictor below (directly, or transitively via the backend
 # modules) already patches SSL and downloads NLTK data as a side effect --
 # see src/preprocessing.py -- so this file doesn't need its own copy.

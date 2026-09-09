@@ -40,6 +40,7 @@ class PermissionManager:
             'notifications': True,
             'background_running': False,
             'gmail_accounts': [],
+            'gemini_api_key': None,  # encrypted like gmail_accounts[].password; see encrypt_password()
             'settings': {
                 'check_interval': 30,  # seconds
                 'auto_scan': True,
